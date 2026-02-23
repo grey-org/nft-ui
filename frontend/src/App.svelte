@@ -10,6 +10,8 @@
     notifications,
     removeNotification,
     isEditingModal,
+    exportBackup,
+    importBackup,
   } from './lib/stores.js';
   import QuotaList from './lib/QuotaList.svelte';
   import PortList from './lib/PortList.svelte';
@@ -94,6 +96,25 @@
     loadQuotas();
     loadForwardingRules();
   }
+
+  let fileInput = $state();
+
+  function handleExport() {
+    exportBackup();
+  }
+
+  function handleImport() {
+    fileInput?.click();
+  }
+
+  async function handleFileSelect(event) {
+    const file = event.target.files?.[0];
+    if (file) {
+      await importBackup(file);
+      // Clear the input so the same file can be imported again
+      event.target.value = '';
+    }
+  }
 </script>
 
 {#if currentRoute === 'query'}
@@ -125,11 +146,36 @@
             
             <button
               class="btn btn-secondary"
+              onclick={handleExport}
+              disabled={$loading}
+            >
+              Export
+            </button>
+
+            <button
+              class="btn btn-secondary"
+              onclick={handleImport}
+              disabled={$loading || $readOnly}
+            >
+              Import
+            </button>
+
+            <button
+              class="btn btn-secondary"
               onclick={handleRefresh}
               disabled={$loading}
             >
               {$loading ? 'Refreshing...' : 'Refresh'}
             </button>
+
+            <!-- Hidden file input for import -->
+            <input
+              type="file"
+              accept=".json"
+              bind:this={fileInput}
+              onchange={handleFileSelect}
+              style="display: none;"
+            />
           </div>
         </div>
       </div>

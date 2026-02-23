@@ -166,3 +166,40 @@ type ForwardingResponse struct {
 type DisabledForwardsFile struct {
 	Rules []ForwardingRule `json:"rules"`
 }
+
+// BackupData represents the exported configuration backup
+type BackupData struct {
+	Version    int                `json:"version"`
+	CreatedAt  string             `json:"created_at"`
+	Quotas     []BackupQuota      `json:"quotas"`
+	Forwarding []BackupForwarding `json:"forwarding"`
+	Ports      []int              `json:"ports"`
+}
+
+// BackupQuota represents a quota rule in the backup
+type BackupQuota struct {
+	Port       int    `json:"port"`
+	QuotaBytes int64  `json:"quota_bytes"`
+	Comment    string `json:"comment"`
+}
+
+// BackupForwarding represents a forwarding rule in the backup
+type BackupForwarding struct {
+	SrcPort   int    `json:"src_port"`
+	DstIP     string `json:"dst_ip"`
+	DstPort   int    `json:"dst_port"`
+	Protocol  string `json:"protocol"`
+	Comment   string `json:"comment"`
+	LimitMbps int    `json:"limit_mbps"`
+	Enabled   bool   `json:"enabled"`
+}
+
+// ImportSummary represents the result of an import operation
+type ImportSummary struct {
+	QuotasAdded      int `json:"quotas_added"`
+	QuotasSkipped    int `json:"quotas_skipped"`
+	ForwardingAdded  int `json:"forwarding_added"`
+	ForwardingSkipped int `json:"forwarding_skipped"`
+	PortsAdded       int `json:"ports_added"`
+	PortsSkipped     int `json:"ports_skipped"`
+}

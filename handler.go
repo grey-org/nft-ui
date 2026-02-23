@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/labstack/echo/v4"
 )
@@ -541,5 +542,169 @@ func (h *Handler) GetRawRuleset(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"success": true,
 		"data":    rawData,
+	})
+}
+
+// ExportBackup handles GET /api/v1/backup
+func (h *Handler) ExportBackup(c echo.Context) error {
+	// Get all quotas
+	quotas, err := h.nft.ListQuotas()
+	if err != nil {
+		h.logger.Printf("Error listing quotas for backup: %v", err)
+		return c.JSON(http.StatusInternalServerError, APIResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+	}
+
+	// Get all forwarding rules
+	forwardingRules, err := h.fwd.ListForwardingRules()
+	if err != nil {
+		h.logger.Printf("Error listing forwarding rules for backup: %v", err)
+		return c.JSON(http.StatusInternalServerError, APIResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+	}
+
+	// Get all allowed ports (managed ones only)
+	allowedPorts, err := h.nft.ListAllowedPorts()
+	if err != nil {
+		h.logger.Printf("Error listing allowed ports for backup: %v", err)
+		allowedPorts = []AllowedPort{}
+	}
+
+	// Build backup data
+	backup := BackupData{
+		Version:   1,
+		CreatedAt: time.Now().Format(time.RFC3339),
+		Quotas:    make([]BackupQuota, 0, len(quotas)),
+		Forwarding: make([]BackupForwarding, 0, len(forwardingRules)),
+		Ports:     make([]int, 0),
+	}
+
+	// Convert quotas
+	for _, q := range quotas {
+		backup.Quotas = append(backup.Quotas, BackupQuota{
+			Port:       q.Port,
+			QuotaBytes: q.QuotaBytes,
+			Comment:    q.Comment,
+		})
+	}
+
+	// Convert forwarding rules
+	for _, rule := range forwardingRules {
+		backup.Forwarding = append(backup.Forwarding, BackupForwarding{
+			SrcPort:   rule.SrcPort,
+			DstIP:     rule.DstIP,
+			DstPort:   rule.DstPort,
+			Protocol:  rule.Protocol,
+			Comment:   rule.Comment,
+			LimitMbps: rule.LimitMbps,
+			Enabled:   rule.Enabled,
+		})
+	}
+
+	// Convert allowed ports (only managed ones)
+	for _, p := range allowedPorts {
+		if p.Managed {
+			backup.Ports = append(backup.Ports, p.Port)
+		}
+	}
+
+	// Set download headers
+	filename := "nft-ui-backup-" + time.Now().Format("2006-01-02") + ".json"
+	c.Response().Header().Set("Content-Disposition", "attachment; filename="+filename)
+	c.Response().Header().Set("Content-Type", "application/json")
+
+	h.logger.Printf("Exported backup: %d quotas, %d forwarding rules, %d ports",
+		len(backup.Quotas), len(backup.Forwarding), len(backup.Ports))
+
+	return c.JSON(http.StatusOK, backup)
+}
+
+// ImportBackup handles POST /api/v1/backup
+func (h *Handler) ImportBackup(c echo.Context) error {
+	var backup BackupData
+	if err := c.Bind(&backup); err != nil {
+		return c.JSON(http.StatusBadRequest, APIResponse{
+			Success: false,
+			Error:   "Invalid backup file format",
+		})
+	}
+
+	// Validate version
+	if backup.Version != 1 {
+		return c.JSON(http.StatusBadRequest, APIResponse{
+			Success: false,
+			Error:   "Unsupported backup version",
+		})
+	}
+
+	summary := ImportSummary{}
+
+	// Import quotas
+	for _, q := range backup.Quotas {
+		err := h.nft.AddQuota(q.Port, q.QuotaBytes, q.Comment)
+		if err != nil {
+			h.logger.Printf("Skipping quota port %d: %v", q.Port, err)
+			summary.QuotasSkipped++
+		} else {
+			summary.QuotasAdded++
+		}
+	}
+
+	// Import forwarding rules
+	for _, f := range backup.Forwarding {
+		if f.Enabled {
+			// Add as active rule
+			err := h.fwd.AddForwardingRule(f.SrcPort, f.DstIP, f.DstPort, f.Protocol, f.Comment, f.LimitMbps)
+			if err != nil {
+				h.logger.Printf("Skipping forwarding rule %d: %v", f.SrcPort, err)
+				summary.ForwardingSkipped++
+			} else {
+				summary.ForwardingAdded++
+			}
+		} else {
+			// Add as disabled rule - we'll use the forwarding manager's internal method
+			// Since there's no public API for adding disabled rules, we'll add it first then disable it
+			err := h.fwd.AddForwardingRule(f.SrcPort, f.DstIP, f.DstPort, f.Protocol, f.Comment, f.LimitMbps)
+			if err != nil {
+				h.logger.Printf("Skipping disabled forwarding rule %d: %v", f.SrcPort, err)
+				summary.ForwardingSkipped++
+			} else {
+				// Disable it immediately
+				id := "fwd_" + strconv.Itoa(f.SrcPort)
+				if err := h.fwd.DisableForwardingRule(id); err != nil {
+					h.logger.Printf("Warning: added rule %d but failed to disable: %v", f.SrcPort, err)
+				}
+				summary.ForwardingAdded++
+			}
+		}
+	}
+
+	// Import allowed ports
+	for _, port := range backup.Ports {
+		err := h.nft.AddAllowedPort(port)
+		if err != nil {
+			h.logger.Printf("Skipping port %d: %v", port, err)
+			summary.PortsSkipped++
+		} else {
+			summary.PortsAdded++
+		}
+	}
+
+	// Save ruleset
+	h.saveRuleset()
+
+	h.logger.Printf("Import complete: quotas=%d/%d, forwarding=%d/%d, ports=%d/%d",
+		summary.QuotasAdded, summary.QuotasAdded+summary.QuotasSkipped,
+		summary.ForwardingAdded, summary.ForwardingAdded+summary.ForwardingSkipped,
+		summary.PortsAdded, summary.PortsAdded+summary.PortsSkipped)
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Backup imported successfully",
+		"summary": summary,
 	})
 }

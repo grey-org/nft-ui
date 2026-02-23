@@ -9,6 +9,8 @@ import {
   deleteForwardingRule as apiDeleteForwarding,
   enableForwardingRule as apiEnableForwarding,
   disableForwardingRule as apiDisableForwarding,
+  exportBackup as apiExportBackup,
+  importBackup as apiImportBackup,
 } from './api.js';
 
 // Core state
@@ -216,6 +218,33 @@ export async function disableForwardingRule(id) {
     await loadForwardingRules();
   } catch (e) {
     errorNotify(`Failed to disable forwarding rule: ${e.message}`);
+    throw e;
+  }
+}
+
+// Export backup
+export async function exportBackup() {
+  try {
+    await apiExportBackup();
+    success('Backup exported successfully');
+  } catch (e) {
+    errorNotify(`Failed to export backup: ${e.message}`);
+    throw e;
+  }
+}
+
+// Import backup
+export async function importBackup(file) {
+  try {
+    const result = await apiImportBackup(file);
+    const summary = result.summary;
+    const msg = `Imported: ${summary.quotas_added} quotas, ${summary.forwarding_added} forwarding rules, ${summary.ports_added} ports`;
+    success(msg);
+    // Reload all data
+    await loadQuotas();
+    await loadForwardingRules();
+  } catch (e) {
+    errorNotify(`Failed to import backup: ${e.message}`);
     throw e;
   }
 }

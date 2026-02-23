@@ -121,3 +121,26 @@ export async function disableForwardingRule(id) {
 export async function fetchRawRuleset() {
   return request('/raw-ruleset');
 }
+
+// Backup/restore functions
+export async function exportBackup() {
+  // This needs to trigger a download, so use fetch+blob
+  const response = await fetch(`${API_BASE}/backup`);
+  if (!response.ok) throw new Error('Export failed');
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = response.headers.get('content-disposition')?.split('filename=')[1] || 'nft-ui-backup.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function importBackup(file) {
+  const text = await file.text();
+  const data = JSON.parse(text);
+  return request('/backup', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}

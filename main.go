@@ -100,6 +100,10 @@ func main() {
 	// Raw ruleset endpoint
 	api.GET("/raw-ruleset", handler.GetRawRuleset)
 
+	// Backup/restore endpoints
+	api.GET("/backup", handler.ExportBackup)
+	api.POST("/backup", handler.ImportBackup)
+
 	// Serve frontend
 	setupFrontend(e)
 
