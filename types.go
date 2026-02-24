@@ -3,7 +3,8 @@ package main
 // QuotaRule represents a parsed nftables quota rule
 type QuotaRule struct {
 	ID           string  `json:"id"`            // inet_filter_output_<handle>
-	Handle       int64   `json:"handle"`        // nft handle for deletion
+	Handle       int64   `json:"handle"`        // nft handle for output chain rule
+	FwdHandle    int64   `json:"fwd_handle"`    // nft handle for forward chain rule
 	Port         int     `json:"port"`          // source port
 	QuotaBytes   int64   `json:"quota_bytes"`   // quota limit in bytes
 	UsedBytes    int64   `json:"used_bytes"`    // current usage in bytes

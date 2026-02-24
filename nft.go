@@ -18,6 +18,12 @@ import (
 // ManagedComment is the comment used to identify rules managed by nft-ui
 const ManagedComment = "nft-ui managed"
 
+// QuotaForwardComment is the comment prefix for forward-chain quota rules
+const QuotaForwardComment = "nft-ui quota"
+
+// ForwardChainName is the chain name used for forward-chain quota rules
+const ForwardChainName = "forward"
+
 // NFTManager handles all nftables operations
 type NFTManager struct {
 	mu          sync.Mutex
@@ -52,26 +58,72 @@ func (n *NFTManager) execNFT(args ...string) ([]byte, error) {
 	return output, nil
 }
 
-// ListQuotas returns all quota rules from the output chain
+// ListQuotas returns all quota rules from the output chain and forward chain
 func (n *NFTManager) ListQuotas() ([]QuotaRule, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	// Get JSON output with handles
+	// Get quota rules from output chain
 	output, err := n.execNFT("-j", "-a", "list", "chain", n.tableFamily, n.tableName, n.chainName)
+	var outputRules []QuotaRule
 	if err != nil {
-		// If chain doesn't exist, return empty list instead of error
-		if strings.Contains(err.Error(), "No such file or directory") ||
-			strings.Contains(err.Error(), "does not exist") {
-			return []QuotaRule{}, nil
+		if !strings.Contains(err.Error(), "No such file or directory") &&
+			!strings.Contains(err.Error(), "does not exist") {
+			return nil, err
 		}
-		return nil, err
+	} else {
+		outputRules, err = n.parseQuotaRules(output)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return n.parseQuotaRules(output)
+	// Get quota rules from forward chain (for forwarded traffic)
+	fwdOutput, err := n.execNFT("-j", "-a", "list", "chain", n.tableFamily, n.tableName, ForwardChainName)
+	var fwdRules []QuotaRule
+	if err == nil {
+		fwdRules, _ = n.parseQuotaRules(fwdOutput)
+	}
+
+	// Merge: for each port, combine used bytes from both chains
+	// The forward chain has the actual usage for forwarded ports
+	fwdByPort := make(map[int]*QuotaRule)
+	for i := range fwdRules {
+		fwdByPort[fwdRules[i].Port] = &fwdRules[i]
+	}
+
+	for i := range outputRules {
+		if fwd, ok := fwdByPort[outputRules[i].Port]; ok {
+			// Combine used bytes from both chains
+			outputRules[i].UsedBytes += fwd.UsedBytes
+			// Store forward chain handle for later operations
+			outputRules[i].FwdHandle = fwd.Handle
+			// Recalculate usage
+			if outputRules[i].QuotaBytes > 0 {
+				outputRules[i].UsagePercent = float64(outputRules[i].UsedBytes) / float64(outputRules[i].QuotaBytes) * 100
+			}
+			if outputRules[i].UsagePercent >= 100 {
+				outputRules[i].Status = "exceeded"
+			} else if outputRules[i].UsagePercent >= 70 {
+				outputRules[i].Status = "warning"
+			} else {
+				outputRules[i].Status = "ok"
+			}
+			delete(fwdByPort, outputRules[i].Port)
+		}
+	}
+
+	// Add any forward-only rules (shouldn't happen normally, but be safe)
+	for _, fwd := range fwdByPort {
+		fwd.FwdHandle = fwd.Handle
+		fwd.Handle = 0
+		outputRules = append(outputRules, *fwd)
+	}
+
+	return outputRules, nil
 }
 
-// parseQuotaRules parses the JSON output and extracts quota rules
+// parseQuotaRules parses the JSON output and extracts quota rules from any chain
 func (n *NFTManager) parseQuotaRules(data []byte) ([]QuotaRule, error) {
 	var ruleset NFTRuleset
 	if err := json.Unmarshal(data, &ruleset); err != nil {
@@ -86,9 +138,6 @@ func (n *NFTManager) parseQuotaRules(data []byte) ([]QuotaRule, error) {
 		}
 
 		rule := obj.Rule
-		if rule.Chain != n.chainName {
-			continue
-		}
 
 		// Extract quota rules (may return multiple for port sets)
 		quotaRules := n.extractQuotaRules(rule)
@@ -177,11 +226,27 @@ func (n *NFTManager) extractQuotaRules(rule *NFTRule) []QuotaRule {
 	return rules
 }
 
-// extractPorts extracts port numbers from a match expression (supports single port or port set)
+// extractPorts extracts port numbers from a match expression (supports single port, port set, and ct original dport)
 func (n *NFTManager) extractPorts(match map[string]interface{}) []int {
 	left, ok := match["left"].(map[string]interface{})
 	if !ok {
 		return nil
+	}
+
+	// Check for ct match (ct original proto-dst)
+	if ct, ok := left["ct"].(map[string]interface{}); ok {
+		key, _ := ct["key"].(string)
+		dir, _ := ct["dir"].(string)
+		if key == "proto-dst" && dir == "original" {
+			right := match["right"]
+			if right == nil {
+				return nil
+			}
+			if port, ok := right.(float64); ok {
+				return []int{int(port)}
+			}
+			return nil
+		}
 	}
 
 	// Check for payload match (th sport)
@@ -241,12 +306,17 @@ func (n *NFTManager) ResetQuota(id string) error {
 		return err
 	}
 
-	// Delete the existing rule
-	if err := n.deleteRuleByHandle(rule.Handle); err != nil {
-		return fmt.Errorf("failed to delete rule: %w", err)
+	// Delete the existing output chain rule
+	if rule.Handle > 0 {
+		if err := n.deleteRuleByHandle(rule.Handle); err != nil {
+			return fmt.Errorf("failed to delete output rule: %w", err)
+		}
 	}
 
-	// Recreate the rule with used=0
+	// Delete the forward chain rule
+	n.deleteForwardQuotaByPort(rule.Port)
+
+	// Recreate rules in both chains with used=0
 	if err := n.addQuotaRule(rule.Port, rule.QuotaBytes, rule.Comment); err != nil {
 		return fmt.Errorf("failed to recreate rule: %w", err)
 	}
@@ -275,16 +345,17 @@ func (n *NFTManager) ModifyQuota(id string, newBytes int64) error {
 		return err
 	}
 
-	// Delete the existing rule
-	if err := n.deleteRuleByHandle(rule.Handle); err != nil {
-		return fmt.Errorf("failed to delete rule: %w", err)
+	// Delete the existing output chain rule
+	if rule.Handle > 0 {
+		if err := n.deleteRuleByHandle(rule.Handle); err != nil {
+			return fmt.Errorf("failed to delete output rule: %w", err)
+		}
 	}
 
-	// Recreate with new limit (preserve current usage for modify, not reset)
-	// Actually, for modify we want to keep the used value? Let me reconsider...
-	// Based on the requirement, modify changes the limit but should preserve used bytes
-	// However, nft doesn't support modifying in place, so we recreate
-	// For now, we'll reset used to 0 when modifying (can be changed if needed)
+	// Delete the forward chain rule
+	n.deleteForwardQuotaByPort(rule.Port)
+
+	// Recreate rules in both chains with new limit
 	if err := n.addQuotaRule(rule.Port, newBytes, rule.Comment); err != nil {
 		return fmt.Errorf("failed to recreate rule: %w", err)
 	}
@@ -311,7 +382,7 @@ func (n *NFTManager) AddQuota(port int, bytes int64, comment string) error {
 	return n.addQuotaRule(port, bytes, comment)
 }
 
-// DeleteQuota deletes a quota rule
+// DeleteQuota deletes a quota rule from both output and forward chains
 func (n *NFTManager) DeleteQuota(id string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -321,7 +392,17 @@ func (n *NFTManager) DeleteQuota(id string) error {
 		return err
 	}
 
-	return n.deleteRuleByHandle(rule.Handle)
+	// Delete output chain rule
+	if rule.Handle > 0 {
+		if err := n.deleteRuleByHandle(rule.Handle); err != nil {
+			return err
+		}
+	}
+
+	// Delete forward chain rule
+	n.deleteForwardQuotaByPort(rule.Port)
+
+	return nil
 }
 
 // findRuleByID finds a rule by its ID (requires lock to be held)
@@ -376,7 +457,7 @@ func (n *NFTManager) EnsureFilterOutputSetup() error {
 	return nil
 }
 
-// addQuotaRule adds a new quota rule
+// addQuotaRule adds quota rules in both output chain (local traffic) and forward chain (forwarded traffic)
 func (n *NFTManager) addQuotaRule(port int, bytes int64, comment string) error {
 	// Ensure filter table and output chain exist
 	if err := n.EnsureFilterOutputSetup(); err != nil {
@@ -389,8 +470,7 @@ func (n *NFTManager) addQuotaRule(port int, bytes int64, comment string) error {
 		mbytes = 1
 	}
 
-	// Build the nft command
-	// nft add rule inet filter output meta l4proto { tcp, udp } th sport <port> quota over <limit> mbytes drop comment "<comment>"
+	// Add rule in output chain (for local traffic, matches by source port)
 	args := []string{
 		"add", "rule", n.tableFamily, n.tableName, n.chainName,
 		"meta", "l4proto", "{", "tcp,", "udp", "}",
@@ -398,13 +478,78 @@ func (n *NFTManager) addQuotaRule(port int, bytes int64, comment string) error {
 		"quota", "over", strconv.FormatInt(mbytes, 10), "mbytes",
 		"drop",
 	}
-
 	if comment != "" {
 		args = append(args, "comment", fmt.Sprintf(`"%s"`, comment))
 	}
+	if _, err := n.execNFT(args...); err != nil {
+		return err
+	}
 
-	_, err := n.execNFT(args...)
-	return err
+	// Ensure forward chain exists for forwarded traffic quota
+	if err := n.EnsureFilterForwardSetup(); err != nil {
+		return err
+	}
+
+	// Add rule in forward chain (for forwarded/DNAT traffic, matches by ct original dport)
+	fwdComment := fmt.Sprintf("%s %d", QuotaForwardComment, port)
+	if comment != "" {
+		fwdComment = fmt.Sprintf("%s %s", fwdComment, comment)
+	}
+	fwdArgs := []string{
+		"add", "rule", n.tableFamily, n.tableName, ForwardChainName,
+		"ct", "original", "proto-dst", strconv.Itoa(port),
+		"quota", "over", strconv.FormatInt(mbytes, 10), "mbytes",
+		"drop",
+		"comment", fmt.Sprintf(`"%s"`, fwdComment),
+	}
+	if _, err := n.execNFT(fwdArgs...); err != nil {
+		// Non-fatal: output chain rule was already added successfully
+		// Log but don't fail - forward chain rule is supplementary
+		fmt.Printf("Warning: failed to add forward chain quota rule for port %d: %v\n", port, err)
+	}
+
+	return nil
+}
+
+// EnsureFilterForwardSetup ensures the filter table and forward chain exist
+func (n *NFTManager) EnsureFilterForwardSetup() error {
+	// Table should already exist (ensured by EnsureFilterOutputSetup)
+	// Check if forward chain exists
+	_, err := n.execNFT("list", "chain", n.tableFamily, n.tableName, ForwardChainName)
+	if err != nil {
+		// Create forward chain
+		if _, err := n.execNFT("add", "chain", n.tableFamily, n.tableName, ForwardChainName,
+			"{ type filter hook forward priority filter ; policy accept ; }"); err != nil {
+			return fmt.Errorf("failed to create %s chain: %w", ForwardChainName, err)
+		}
+	}
+	return nil
+}
+
+// deleteForwardQuotaByPort deletes forward chain quota rule for a given port
+func (n *NFTManager) deleteForwardQuotaByPort(port int) error {
+	output, err := n.execNFT("-j", "-a", "list", "chain", n.tableFamily, n.tableName, ForwardChainName)
+	if err != nil {
+		return nil // chain doesn't exist, nothing to delete
+	}
+
+	var ruleset NFTRuleset
+	if err := json.Unmarshal(output, &ruleset); err != nil {
+		return err
+	}
+
+	commentPrefix := fmt.Sprintf("%s %d", QuotaForwardComment, port)
+	for _, obj := range ruleset.NFTables {
+		if obj.Rule == nil || obj.Rule.Chain != ForwardChainName {
+			continue
+		}
+		if strings.HasPrefix(obj.Rule.Comment, commentPrefix) {
+			n.execNFT("delete", "rule", n.tableFamily, n.tableName, ForwardChainName,
+				"handle", strconv.FormatInt(obj.Rule.Handle, 10))
+			return nil
+		}
+	}
+	return nil
 }
 
 // convertToBytes converts a value with unit to bytes
