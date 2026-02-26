@@ -81,7 +81,7 @@
   class:selected={isSelected}
 >
   <button
-    class="grid md:grid-cols-[40px_100px_180px_120px_100px_50px] grid-cols-[40px_80px_1fr_60px] gap-2 md:gap-0 p-3 md:px-4 items-center cursor-pointer w-full bg-transparent border-none text-inherit text-left"
+    class="grid md:grid-cols-[40px_100px_180px_1fr_100px_50px] grid-cols-[40px_80px_1fr_60px] gap-2 md:gap-0 p-3 md:px-4 items-center cursor-pointer w-full bg-transparent border-none text-inherit text-left"
     onclick={toggleExpand}
     type="button"
   >

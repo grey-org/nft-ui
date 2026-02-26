@@ -46,7 +46,7 @@
   class:opacity-85={!rule.managed}
 >
   <button
-    class="grid md:grid-cols-[80px_120px_1fr_100px_120px] grid-cols-[40px_1fr_60px] gap-2 md:gap-0 p-3 md:px-4 items-center cursor-pointer w-full bg-transparent border-none text-inherit text-left"
+    class="grid md:grid-cols-[80px_120px_1fr_100px_80px] grid-cols-[40px_1fr_60px] gap-2 md:gap-0 p-3 md:px-4 items-center cursor-pointer w-full bg-transparent border-none text-inherit text-left"
     onclick={() => expanded = !expanded}
     type="button"
   >

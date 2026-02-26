@@ -72,7 +72,7 @@
   </div>
 
   <!-- Table header -->
-  <div class="table-header hidden md:grid grid-cols-[40px_100px_180px_120px_100px_50px]">
+  <div class="table-header hidden md:grid grid-cols-[40px_100px_180px_1fr_100px_50px] px-4">
     <div></div>
     <div>Port</div>
     <div>Usage</div>

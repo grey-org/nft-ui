@@ -27,12 +27,12 @@
     </div>
   {:else}
     <div class="card overflow-hidden">
-      <div class="table-header hidden md:grid grid-cols-[80px_120px_1fr_100px_120px]">
+      <div class="table-header hidden md:grid grid-cols-[80px_120px_1fr_100px_80px] px-4">
         <div>Status</div>
         <div>Source Port</div>
         <div>Destination</div>
         <div>Protocol</div>
-        <div>Actions</div>
+        <div></div>
       </div>
       {#each $sortedForwardingRules as rule (rule.id)}
         <ForwardingItem {rule} />
