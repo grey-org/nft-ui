@@ -27,16 +27,22 @@
     </div>
   {:else}
     <div class="card overflow-hidden">
-      <div class="table-header hidden md:grid grid-cols-[80px_120px_1fr_100px_80px] px-4">
-        <div>Status</div>
-        <div>Source Port</div>
-        <div>Destination</div>
-        <div>Protocol</div>
-        <div></div>
-      </div>
-      {#each $sortedForwardingRules as rule (rule.id)}
-        <ForwardingItem {rule} />
-      {/each}
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th class="w-20">Status</th>
+            <th>Source Port</th>
+            <th class="hidden md:table-cell">Destination</th>
+            <th class="hidden md:table-cell">Protocol</th>
+            <th class="w-12"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each $sortedForwardingRules as rule (rule.id)}
+            <ForwardingItem {rule} />
+          {/each}
+        </tbody>
+      </table>
     </div>
   {/if}
 </section>

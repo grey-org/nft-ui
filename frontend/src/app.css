@@ -376,7 +376,7 @@ body {
   color: var(--text);
 }
 
-/* Table Styles */
+/* Table Styles (legacy grid-based) */
 .table-header {
   text-transform: uppercase;
   font-size: 0.75rem;
@@ -398,6 +398,56 @@ body {
 }
 
 .table-row:last-child {
+  border-bottom: none;
+}
+
+/* Data Table (native <table>) */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--text);
+}
+
+.data-table thead tr {
+  border-bottom: 1px solid var(--border);
+}
+
+.data-table th {
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: 0.75rem 1rem;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.data-table .data-row {
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.data-table .data-row:hover {
+  background-color: var(--surface-hover);
+}
+
+.data-table .data-row td {
+  padding: 0.75rem 1rem;
+  vertical-align: middle;
+}
+
+.data-table .detail-row {
+  background-color: var(--surface);
+}
+
+.data-table .detail-row td {
+  padding: 0;
+}
+
+.data-table tbody tr:last-child,
+.data-table tbody tr:last-child td {
   border-bottom: none;
 }
 

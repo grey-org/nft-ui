@@ -71,25 +71,29 @@
     </div>
   </div>
 
-  <!-- Table header -->
-  <div class="table-header hidden md:grid grid-cols-[40px_100px_180px_1fr_100px_50px] px-4">
-    <div></div>
-    <div>Port</div>
-    <div>Usage</div>
-    <div>Progress</div>
-    <div>Status</div>
-    <div></div>
-  </div>
-
-  <!-- Quota items -->
+  <!-- Table -->
   {#if $loading && $sortedQuotas.length === 0}
     <div class="py-10 text-center" style="color: var(--text-muted);">Loading...</div>
   {:else if $sortedQuotas.length === 0}
     <div class="py-10 text-center" style="color: var(--text-muted);">No quota rules found</div>
   {:else}
-    {#each $sortedQuotas as quota (quota.id)}
-      <QuotaItem {quota} />
-    {/each}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th class="w-10"></th>
+          <th>Port</th>
+          <th class="hidden md:table-cell">Usage</th>
+          <th>Progress</th>
+          <th class="hidden md:table-cell">Status</th>
+          <th class="w-12"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {#each $sortedQuotas as quota (quota.id)}
+          <QuotaItem {quota} />
+        {/each}
+      </tbody>
+    </table>
   {/if}
 </div>
 

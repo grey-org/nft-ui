@@ -76,23 +76,16 @@
   }
 </script>
 
-<div
-  class="table-row"
-  class:selected={isSelected}
->
-  <button
-    class="grid md:grid-cols-[40px_100px_180px_1fr_100px_50px] grid-cols-[40px_80px_1fr_60px] gap-2 md:gap-0 p-3 md:px-4 items-center cursor-pointer w-full bg-transparent border-none text-inherit text-left"
-    onclick={toggleExpand}
-    type="button"
-  >
-    <div>
-      <input
-        type="checkbox"
-        class="w-[18px] h-[18px] cursor-pointer accent-[var(--primary)]"
-        checked={isSelected}
-        onclick={handleCheckbox}
-      />
-    </div>
+<tr class="data-row" class:selected={isSelected} onclick={toggleExpand}>
+  <td class="w-10">
+    <input
+      type="checkbox"
+      class="w-[18px] h-[18px] cursor-pointer accent-[var(--primary)]"
+      checked={isSelected}
+      onclick={handleCheckbox}
+    />
+  </td>
+  <td>
     <div class="flex items-center gap-2">
       <span
         class="status-dot"
@@ -102,11 +95,15 @@
       ></span>
       <span class="font-semibold text-base" style="color: var(--text);">{quota.port}</span>
     </div>
-    <div class="hidden md:flex items-center gap-1 text-sm">
+  </td>
+  <td class="hidden md:table-cell">
+    <div class="flex items-center gap-1 text-sm">
       <span class="font-semibold" style="color: var(--text);">{formatBytes(quota.used_bytes)}</span>
       <span style="color: var(--text-muted);">/</span>
       <span style="color: var(--text-muted);">{formatBytes(quota.quota_bytes)}</span>
     </div>
+  </td>
+  <td>
     <div class="flex items-center gap-2">
       <div class="flex-1 h-2 rounded-full overflow-hidden" style="background-color: var(--border); min-width: 60px;">
         <div
@@ -116,92 +113,98 @@
       </div>
       <span class="text-xs font-semibold min-w-[40px]" style="color: var(--text);">{formatPercent(quota.usage_percent)}</span>
     </div>
-    <div class="hidden md:flex items-center gap-2">
+  </td>
+  <td class="hidden md:table-cell">
+    <div class="flex items-center gap-2">
       <span class="w-2 h-2 rounded-full" style="background-color: {statusColor}; box-shadow: 0 0 6px {statusColor};"></span>
       <span class="text-sm capitalize" style="color: var(--text);">{quota.status}</span>
     </div>
-    <div>
-      <span class="text-xl text-center w-full block" style="color: var(--text-muted);">{expanded ? '−' : '+'}</span>
-    </div>
-  </button>
+  </td>
+  <td class="w-12 text-center">
+    <span class="text-xl" style="color: var(--text-muted);">{expanded ? '−' : '+'}</span>
+  </td>
+</tr>
 
-  {#if expanded}
-    <div class="px-4 md:pl-14 pb-4 animate-[slideDown_0.2s_ease]">
-      {#if quota.comment}
+{#if expanded}
+  <tr class="detail-row">
+    <td colspan="6">
+      <div class="px-4 pb-4 pt-2 animate-[slideDown_0.2s_ease]">
+        {#if quota.comment}
+          <div class="flex gap-2 mb-2 text-sm">
+            <span style="color: var(--text-muted);">Comment:</span>
+            <span style="color: var(--text);">{quota.comment}</span>
+          </div>
+        {/if}
         <div class="flex gap-2 mb-2 text-sm">
-          <span style="color: var(--text-muted);">Comment:</span>
-          <span style="color: var(--text);">{quota.comment}</span>
+          <span style="color: var(--text-muted);">ID:</span>
+          <span class="font-mono text-xs px-1.5 py-0.5 rounded" style="background-color: var(--bg); color: var(--text); border: 1px solid var(--border);">{quota.id}</span>
         </div>
-      {/if}
-      <div class="flex gap-2 mb-2 text-sm">
-        <span style="color: var(--text-muted);">ID:</span>
-        <span class="font-mono text-xs px-1.5 py-0.5 rounded" style="background-color: var(--bg); color: var(--text); border: 1px solid var(--border);">{quota.id}</span>
+        {#if quota.token}
+          <div class="flex gap-2 mb-2 text-sm">
+            <span style="color: var(--text-muted);">Query Token:</span>
+            <span class="inline-flex items-center gap-2 font-mono text-xs px-1.5 py-0.5 rounded" style="background-color: var(--bg); color: var(--text); border: 1px solid var(--border);">
+              {quota.token}
+              <button
+                class="px-2 py-0.5 text-[11px] rounded cursor-pointer transition-all"
+                style="background-color: var(--surface-hover); border: 1px solid var(--border); color: var(--text-muted);"
+                onmouseover={(e) => e.currentTarget.style.backgroundColor = 'var(--border)'}
+                onmouseout={(e) => e.currentTarget.style.backgroundColor = 'var(--surface-hover)'}
+                onclick={copyToken}
+                title="Copy token"
+              >
+                {copiedToken ? 'Copied!' : 'Copy'}
+              </button>
+            </span>
+          </div>
+          <div class="flex gap-2 mb-2 text-sm">
+            <span style="color: var(--text-muted);">Query URL:</span>
+            <span class="inline-flex items-center gap-2 font-mono text-xs px-1.5 py-0.5 rounded" style="background-color: var(--bg); color: var(--text); border: 1px solid var(--border);">
+              <a href={queryUrl} target="_blank" class="no-underline hover:underline" style="color: var(--primary);">
+                /query?token={quota.token}
+              </a>
+              <button
+                class="px-2 py-0.5 text-[11px] rounded cursor-pointer transition-all"
+                style="background-color: var(--surface-hover); border: 1px solid var(--border); color: var(--text-muted);"
+                onmouseover={(e) => e.currentTarget.style.backgroundColor = 'var(--border)'}
+                onmouseout={(e) => e.currentTarget.style.backgroundColor = 'var(--surface-hover)'}
+                onclick={copyQueryUrl}
+                title="Copy URL"
+              >
+                {copiedUrl ? 'Copied!' : 'Copy'}
+              </button>
+            </span>
+          </div>
+        {/if}
+
+        {#if !$readOnly}
+          <div class="flex gap-2 mt-4">
+            <button
+              class="btn btn-sm btn-secondary"
+              onclick={() => (showResetConfirm = true)}
+              disabled={processing}
+            >
+              Reset
+            </button>
+            <button
+              class="btn btn-sm btn-secondary"
+              onclick={() => (showEditModal = true)}
+              disabled={processing}
+            >
+              Edit
+            </button>
+            <button
+              class="btn btn-sm btn-danger"
+              onclick={() => (showDeleteConfirm = true)}
+              disabled={processing}
+            >
+              Delete
+            </button>
+          </div>
+        {/if}
       </div>
-      {#if quota.token}
-        <div class="flex gap-2 mb-2 text-sm">
-          <span style="color: var(--text-muted);">Query Token:</span>
-          <span class="inline-flex items-center gap-2 font-mono text-xs px-1.5 py-0.5 rounded" style="background-color: var(--bg); color: var(--text); border: 1px solid var(--border);">
-            {quota.token}
-            <button
-              class="px-2 py-0.5 text-[11px] rounded cursor-pointer transition-all"
-              style="background-color: var(--surface-hover); border: 1px solid var(--border); color: var(--text-muted);"
-              onmouseover={(e) => e.currentTarget.style.backgroundColor = 'var(--border)'}
-              onmouseout={(e) => e.currentTarget.style.backgroundColor = 'var(--surface-hover)'}
-              onclick={copyToken}
-              title="Copy token"
-            >
-              {copiedToken ? 'Copied!' : 'Copy'}
-            </button>
-          </span>
-        </div>
-        <div class="flex gap-2 mb-2 text-sm">
-          <span style="color: var(--text-muted);">Query URL:</span>
-          <span class="inline-flex items-center gap-2 font-mono text-xs px-1.5 py-0.5 rounded" style="background-color: var(--bg); color: var(--text); border: 1px solid var(--border);">
-            <a href={queryUrl} target="_blank" class="no-underline hover:underline" style="color: var(--primary);">
-              /query?token={quota.token}
-            </a>
-            <button
-              class="px-2 py-0.5 text-[11px] rounded cursor-pointer transition-all"
-              style="background-color: var(--surface-hover); border: 1px solid var(--border); color: var(--text-muted);"
-              onmouseover={(e) => e.currentTarget.style.backgroundColor = 'var(--border)'}
-              onmouseout={(e) => e.currentTarget.style.backgroundColor = 'var(--surface-hover)'}
-              onclick={copyQueryUrl}
-              title="Copy URL"
-            >
-              {copiedUrl ? 'Copied!' : 'Copy'}
-            </button>
-          </span>
-        </div>
-      {/if}
-
-      {#if !$readOnly}
-        <div class="flex gap-2 mt-4">
-          <button
-            class="btn btn-sm btn-secondary"
-            onclick={() => (showResetConfirm = true)}
-            disabled={processing}
-          >
-            Reset
-          </button>
-          <button
-            class="btn btn-sm btn-secondary"
-            onclick={() => (showEditModal = true)}
-            disabled={processing}
-          >
-            Edit
-          </button>
-          <button
-            class="btn btn-sm btn-danger"
-            onclick={() => (showDeleteConfirm = true)}
-            disabled={processing}
-          >
-            Delete
-          </button>
-        </div>
-      {/if}
-    </div>
-  {/if}
-</div>
+    </td>
+  </tr>
+{/if}
 
 <!-- Reset confirm dialog -->
 {#if showResetConfirm}
@@ -232,7 +235,7 @@
 {/if}
 
 <style>
-  .selected {
+  .selected td {
     background-color: rgba(59, 130, 246, 0.1);
   }
 
