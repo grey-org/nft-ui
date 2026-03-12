@@ -73,7 +73,7 @@ export async function fetchForwardingRules() {
   return request('/forwarding');
 }
 
-export async function addForwardingRule(srcPort, dstIP, dstPort, protocol, comment, limitMbps, mssMode) {
+export async function addForwardingRule(srcPort, dstIP, dstPort, protocol, comment, limitMbps, mssMode, sourceNATMode, snatAddress) {
   return request('/forwarding', {
     method: 'POST',
     body: JSON.stringify({
@@ -84,11 +84,15 @@ export async function addForwardingRule(srcPort, dstIP, dstPort, protocol, comme
       comment,
       limit_mbps: limitMbps || 0,
       mss_mode: mssMode || 'pmtu',
+      source_nat_mode: sourceNATMode || 'masquerade',
+      snat_address: sourceNATMode === 'snat' ? (snatAddress || '') : '',
+      source_nat_mode: sourceNATMode || 'masquerade',
+      snat_address: sourceNATMode === 'snat' ? (snatAddress || '') : '',
     }),
   });
 }
 
-export async function editForwardingRule(id, dstIP, dstPort, protocol, comment, limitMbps, mssMode) {
+export async function editForwardingRule(id, dstIP, dstPort, protocol, comment, limitMbps, mssMode, sourceNATMode, snatAddress) {
   return request(`/forwarding/${encodeURIComponent(id)}`, {
     method: 'PUT',
     body: JSON.stringify({
@@ -98,6 +102,8 @@ export async function editForwardingRule(id, dstIP, dstPort, protocol, comment, 
       comment,
       limit_mbps: limitMbps || 0,
       mss_mode: mssMode || 'pmtu',
+      source_nat_mode: sourceNATMode || 'masquerade',
+      snat_address: sourceNATMode === 'snat' ? (snatAddress || '') : '',
     }),
   });
 }

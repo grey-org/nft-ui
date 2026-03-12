@@ -121,6 +121,17 @@
           </div>
         {/if}
         <div class="flex gap-2 mb-2 text-sm">
+          <span style="color: var(--text-muted);">Source NAT:</span>
+          <span style="color: var(--text);">
+            {#if rule.source_nat_mode === 'snat'}
+              Fixed SNAT{#if rule.snat_address} → {rule.snat_address}{/if}
+            {:else}
+              MASQUERADE
+            {/if}
+          </span>
+        </div>
+
+        <div class="flex gap-2 mb-2 text-sm">
           <span style="color: var(--text-muted);">TCP MSS:</span>
           <span style="color: var(--text);">
             {#if rule.mss_mode === 'pmtu'}

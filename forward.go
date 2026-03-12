@@ -193,11 +193,12 @@ func (m *ForwardingManager) ListForwardingRules() ([]ForwardingRule, error) {
 		return nil, err
 	}
 
-	// Get limit and MSS information from filter forward chain
+	// Get limit, MSS, and source NAT information
 	limitMap := m.extractLimitsFromForwardChain()
 	mssModeMap := m.extractMSSModesFromForwardChain()
+	sourceNATMap := m.extractSourceNATFromPostrouting(postOutput)
 
-	// Apply limits and MSS modes to enabled rules
+	// Apply limits, MSS modes, and source NAT settings to enabled rules
 	for i := range enabledRules {
 		if limit, ok := limitMap[enabledRules[i].SrcPort]; ok {
 			enabledRules[i].LimitMbps = limit
@@ -206,6 +207,12 @@ func (m *ForwardingManager) ListForwardingRules() ([]ForwardingRule, error) {
 			enabledRules[i].MSSMode = mssMode
 		} else if enabledRules[i].Managed {
 			enabledRules[i].MSSMode = MSSModeFixed1452
+		}
+		if natInfo, ok := sourceNATMap[enabledRules[i].SrcPort]; ok {
+			enabledRules[i].SourceNATMode = natInfo.Mode
+			enabledRules[i].SNATAddress = natInfo.Address
+		} else if enabledRules[i].Managed {
+			enabledRules[i].SourceNATMode = SourceNATModeMasquerade
 		}
 	}
 
@@ -269,6 +276,55 @@ func (m *ForwardingManager) extractLimitsFromForwardChain() map[int]int {
 	}
 
 	return limitMap
+}
+
+type sourceNATInfo struct {
+	Mode    string
+	Address string
+}
+
+func (m *ForwardingManager) extractSourceNATFromPostrouting(postData []byte) map[int]sourceNATInfo {
+	sourceNATMap := make(map[int]sourceNATInfo)
+
+	var ruleset NFTRuleset
+	if err := json.Unmarshal(postData, &ruleset); err != nil {
+		return sourceNATMap
+	}
+
+	for _, obj := range ruleset.NFTables {
+		if obj.Rule == nil || obj.Rule.Chain != "postrouting" {
+			continue
+		}
+		if !strings.HasPrefix(obj.Rule.Comment, ForwardingComment) {
+			continue
+		}
+
+		srcPort := m.extractSrcPortFromComment(obj.Rule.Comment)
+		if srcPort == 0 {
+			continue
+		}
+
+		info := sourceNATInfo{Mode: SourceNATModeMasquerade}
+		for _, expr := range obj.Rule.Expr {
+			if snatData, ok := expr["snat"]; ok {
+				if sm, ok := snatData.(map[string]interface{}); ok {
+					info.Mode = SourceNATModeSNAT
+					if addr, ok := sm["addr"].(string); ok {
+						info.Address = addr
+					}
+				}
+				break
+			}
+			if _, ok := expr["masquerade"]; ok {
+				info.Mode = SourceNATModeMasquerade
+				info.Address = ""
+				break
+			}
+		}
+		sourceNATMap[srcPort] = info
+	}
+
+	return sourceNATMap
 }
 
 func (m *ForwardingManager) extractMSSModesFromForwardChain() map[int]string {
@@ -483,19 +539,20 @@ func (m *ForwardingManager) extractForwardingRule(rule *NFTRule) *ForwardingRule
 	}
 
 	return &ForwardingRule{
-		ID:       fmt.Sprintf("fwd_%d", srcPort),
-		SrcPort:  srcPort,
-		DstIP:    dstIP,
-		DstPort:  dstPort,
-		Protocol: protocol,
-		Comment:  userComment,
-		MSSMode:  MSSModeFixed1452,
-		// LimitMbps will be filled by extractLimitsFromForwardChain()
+		ID:            fmt.Sprintf("fwd_%d", srcPort),
+		SrcPort:       srcPort,
+		DstIP:         dstIP,
+		DstPort:       dstPort,
+		Protocol:      protocol,
+		Comment:       userComment,
+		MSSMode:       MSSModeFixed1452,
+		SourceNATMode: SourceNATModeMasquerade,
+		// LimitMbps and SNATAddress will be filled by chain-specific extraction.
 	}
 }
 
 // AddForwardingRule adds a new port forwarding rule
-func (m *ForwardingManager) AddForwardingRule(srcPort int, dstIP string, dstPort int, protocol string, comment string, limitMbps int, mssMode string) error {
+func (m *ForwardingManager) AddForwardingRule(srcPort int, dstIP string, dstPort int, protocol string, comment string, limitMbps int, mssMode string, sourceNATMode string, snatAddress string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -547,6 +604,17 @@ func (m *ForwardingManager) AddForwardingRule(srcPort int, dstIP string, dstPort
 	if mssMode == "" {
 		return fmt.Errorf("invalid MSS mode: %s", mssMode)
 	}
+	sourceNATMode = normalizeSourceNATMode(sourceNATMode)
+	if sourceNATMode == "" {
+		return fmt.Errorf("invalid source NAT mode: %s", sourceNATMode)
+	}
+	if sourceNATMode == SourceNATModeSNAT {
+		if !isValidIPv4(snatAddress) {
+			return fmt.Errorf("invalid SNAT address: %s", snatAddress)
+		}
+	} else {
+		snatAddress = ""
+	}
 
 	// Build comment string
 	fullComment := fmt.Sprintf("%s %d", ForwardingComment, srcPort)
@@ -560,10 +628,10 @@ func (m *ForwardingManager) AddForwardingRule(srcPort int, dstIP string, dstPort
 	}
 
 	// Add postrouting MASQUERADE rule
-	if err := m.addMasqueradeRule(dstIP, dstPort, protocol, fullComment); err != nil {
+	if err := m.addSourceNATRule(dstIP, dstPort, protocol, fullComment, sourceNATMode, snatAddress); err != nil {
 		// Rollback: delete the DNAT rule
 		m.deleteDNATRuleBySrcPort(srcPort)
-		return fmt.Errorf("failed to add MASQUERADE rule: %w", err)
+		return fmt.Errorf("failed to add source NAT rule: %w", err)
 	}
 
 	// Add output DNAT rule for local traffic
@@ -629,36 +697,36 @@ func (m *ForwardingManager) addDNATRule(srcPort int, dstIP string, dstPort int, 
 	return err
 }
 
-// addMasqueradeRule adds a postrouting MASQUERADE rule
-func (m *ForwardingManager) addMasqueradeRule(dstIP string, dstPort int, protocol string, comment string) error {
-	var args []string
+// addSourceNATRule adds a postrouting source NAT rule using masquerade or fixed SNAT.
+func (m *ForwardingManager) addSourceNATRule(dstIP string, dstPort int, protocol string, comment string, sourceNATMode string, snatAddress string) error {
+	sourceNATMode = normalizeSourceNATMode(sourceNATMode)
+	if sourceNATMode == "" {
+		return fmt.Errorf("invalid source NAT mode")
+	}
+	if sourceNATMode == SourceNATModeSNAT && !isValidIPv4(snatAddress) {
+		return fmt.Errorf("invalid SNAT address: %s", snatAddress)
+	}
 
+	buildArgs := func(protoArgs []string) []string {
+		args := []string{"add", "rule", "ip", "nat", "postrouting", "ip", "daddr", dstIP}
+		args = append(args, protoArgs...)
+		if sourceNATMode == SourceNATModeSNAT {
+			args = append(args, "snat", "to", snatAddress)
+		} else {
+			args = append(args, "masquerade")
+		}
+		args = append(args, "comment", fmt.Sprintf(`"%s"`, comment))
+		return args
+	}
+
+	var args []string
 	switch protocol {
 	case "tcp":
-		args = []string{
-			"add", "rule", "ip", "nat", "postrouting",
-			"ip", "daddr", dstIP,
-			"tcp", "dport", strconv.Itoa(dstPort),
-			"masquerade",
-			"comment", fmt.Sprintf(`"%s"`, comment),
-		}
+		args = buildArgs([]string{"tcp", "dport", strconv.Itoa(dstPort)})
 	case "udp":
-		args = []string{
-			"add", "rule", "ip", "nat", "postrouting",
-			"ip", "daddr", dstIP,
-			"udp", "dport", strconv.Itoa(dstPort),
-			"masquerade",
-			"comment", fmt.Sprintf(`"%s"`, comment),
-		}
+		args = buildArgs([]string{"udp", "dport", strconv.Itoa(dstPort)})
 	default: // "both"
-		args = []string{
-			"add", "rule", "ip", "nat", "postrouting",
-			"ip", "daddr", dstIP,
-			"meta", "l4proto", "{", "tcp,", "udp", "}",
-			"th", "dport", strconv.Itoa(dstPort),
-			"masquerade",
-			"comment", fmt.Sprintf(`"%s"`, comment),
-		}
+		args = buildArgs([]string{"meta", "l4proto", "{", "tcp,", "udp", "}", "th", "dport", strconv.Itoa(dstPort)})
 	}
 
 	_, err := m.execNFT(args...)
@@ -931,7 +999,7 @@ func (m *ForwardingManager) DeleteForwardingRule(id string) error {
 }
 
 // EditForwardingRule modifies an existing forwarding rule
-func (m *ForwardingManager) EditForwardingRule(id string, dstIP string, dstPort int, protocol string, comment string, limitMbps int, mssMode string) error {
+func (m *ForwardingManager) EditForwardingRule(id string, dstIP string, dstPort int, protocol string, comment string, limitMbps int, mssMode string, sourceNATMode string, snatAddress string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -958,6 +1026,17 @@ func (m *ForwardingManager) EditForwardingRule(id string, dstIP string, dstPort 
 	if mssMode == "" {
 		return fmt.Errorf("invalid MSS mode: %s", mssMode)
 	}
+	sourceNATMode = normalizeSourceNATMode(sourceNATMode)
+	if sourceNATMode == "" {
+		return fmt.Errorf("invalid source NAT mode: %s", sourceNATMode)
+	}
+	if sourceNATMode == SourceNATModeSNAT {
+		if !isValidIPv4(snatAddress) {
+			return fmt.Errorf("invalid SNAT address: %s", snatAddress)
+		}
+	} else {
+		snatAddress = ""
+	}
 
 	comment = sanitizeComment(comment)
 
@@ -972,6 +1051,8 @@ func (m *ForwardingManager) EditForwardingRule(id string, dstIP string, dstPort 
 			disabledRules[i].Comment = comment
 			disabledRules[i].LimitMbps = limitMbps
 			disabledRules[i].MSSMode = mssMode
+			disabledRules[i].SourceNATMode = sourceNATMode
+			disabledRules[i].SNATAddress = snatAddress
 			return m.saveDisabledRules(disabledRules)
 		}
 	}
@@ -995,9 +1076,9 @@ func (m *ForwardingManager) EditForwardingRule(id string, dstIP string, dstPort 
 		return fmt.Errorf("failed to add DNAT rule: %w", err)
 	}
 
-	if err := m.addMasqueradeRule(dstIP, dstPort, protocol, fullComment); err != nil {
+	if err := m.addSourceNATRule(dstIP, dstPort, protocol, fullComment, sourceNATMode, snatAddress); err != nil {
 		m.deleteDNATRuleBySrcPort(srcPort)
-		return fmt.Errorf("failed to add MASQUERADE rule: %w", err)
+		return fmt.Errorf("failed to add source NAT rule: %w", err)
 	}
 
 	if err := m.addOutputDNATRule(srcPort, dstIP, dstPort, protocol, fullComment, limitMbps); err != nil {
@@ -1070,9 +1151,9 @@ func (m *ForwardingManager) EnableForwardingRule(id string) error {
 		return fmt.Errorf("failed to add DNAT rule: %w", err)
 	}
 
-	if err := m.addMasqueradeRule(rule.DstIP, rule.DstPort, rule.Protocol, fullComment); err != nil {
+	if err := m.addSourceNATRule(rule.DstIP, rule.DstPort, rule.Protocol, fullComment, rule.SourceNATMode, rule.SNATAddress); err != nil {
 		m.deleteDNATRuleBySrcPort(rule.SrcPort)
-		return fmt.Errorf("failed to add MASQUERADE rule: %w", err)
+		return fmt.Errorf("failed to add source NAT rule: %w", err)
 	}
 
 	if err := m.addOutputDNATRule(rule.SrcPort, rule.DstIP, rule.DstPort, rule.Protocol, fullComment, rule.LimitMbps); err != nil {
@@ -1119,6 +1200,26 @@ func (m *ForwardingManager) DisableForwardingRule(id string) error {
 		return err
 	}
 
+	limitMap := m.extractLimitsFromForwardChain()
+	mssModeMap := m.extractMSSModesFromForwardChain()
+	sourceNATMap := m.extractSourceNATFromPostrouting(postOutput)
+	for i := range enabledRules {
+		if limit, ok := limitMap[enabledRules[i].SrcPort]; ok {
+			enabledRules[i].LimitMbps = limit
+		}
+		if mssMode, ok := mssModeMap[enabledRules[i].SrcPort]; ok {
+			enabledRules[i].MSSMode = mssMode
+		} else if enabledRules[i].Managed {
+			enabledRules[i].MSSMode = MSSModeFixed1452
+		}
+		if natInfo, ok := sourceNATMap[enabledRules[i].SrcPort]; ok {
+			enabledRules[i].SourceNATMode = natInfo.Mode
+			enabledRules[i].SNATAddress = natInfo.Address
+		} else if enabledRules[i].Managed {
+			enabledRules[i].SourceNATMode = SourceNATModeMasquerade
+		}
+	}
+
 	// Find the rule to disable
 	var rule *ForwardingRule
 	for i, r := range enabledRules {
@@ -1144,15 +1245,17 @@ func (m *ForwardingManager) DisableForwardingRule(id string) error {
 	// Save to disabled rules
 	disabledRules, _ := m.loadDisabledRules()
 	disabledRule := ForwardingRule{
-		ID:        rule.ID,
-		SrcPort:   rule.SrcPort,
-		DstIP:     rule.DstIP,
-		DstPort:   rule.DstPort,
-		Protocol:  rule.Protocol,
-		Enabled:   false,
-		Comment:   rule.Comment,
-		LimitMbps: rule.LimitMbps,
-		MSSMode:   rule.MSSMode,
+		ID:            rule.ID,
+		SrcPort:       rule.SrcPort,
+		DstIP:         rule.DstIP,
+		DstPort:       rule.DstPort,
+		Protocol:      rule.Protocol,
+		Enabled:       false,
+		Comment:       rule.Comment,
+		LimitMbps:     rule.LimitMbps,
+		MSSMode:       rule.MSSMode,
+		SourceNATMode: rule.SourceNATMode,
+		SNATAddress:   rule.SNATAddress,
 	}
 	disabledRules = append(disabledRules, disabledRule)
 	return m.saveDisabledRules(disabledRules)

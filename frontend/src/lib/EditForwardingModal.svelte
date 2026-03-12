@@ -16,6 +16,8 @@
   let comment = $state(rule.comment || '');
   let limitMbps = $state((rule.limit_mbps || 0).toString());
   let mssMode = $state(rule.mss_mode || 'fixed1452');
+  let sourceNATMode = $state(rule.source_nat_mode || 'masquerade');
+  let snatAddress = $state(rule.snat_address || '');
   let submitting = $state(false);
   let errors = $state({});
 
@@ -36,6 +38,10 @@
       newErrors.limitMbps = 'Limit must be 0 or positive (0 = no limit)';
     }
 
+    if (sourceNATMode === 'snat' && !isValidIPv4(snatAddress)) {
+      newErrors.snatAddress = 'Please enter a valid IPv4 SNAT address';
+    }
+
     errors = newErrors;
     return Object.keys(newErrors).length === 0;
   }
@@ -52,7 +58,9 @@
         protocol,
         comment,
         parseInt(limitMbps, 10),
-        mssMode
+        mssMode,
+        sourceNATMode,
+        snatAddress
       );
       onclose?.();
     } catch (e) {
@@ -164,6 +172,36 @@
           maxlength="100"
         />
       </div>
+
+      <div class="mb-4">
+        <label for="sourceNATMode" class="label">
+          <span>Source NAT</span>
+        </label>
+        <select id="sourceNATMode" class="select" bind:value={sourceNATMode}>
+          <option value="masquerade">MASQUERADE (dynamic egress IP)</option>
+          <option value="snat">Fixed SNAT (static egress IP)</option>
+        </select>
+      </div>
+
+      {#if sourceNATMode === 'snat'}
+        <div class="mb-4">
+          <label for="snatAddress" class="label">
+            <span>SNAT Address</span>
+          </label>
+          <input
+            type="text"
+            id="snatAddress"
+            class="input"
+            class:input-error={errors.snatAddress}
+            bind:value={snatAddress}
+            placeholder="e.g. 203.0.113.10"
+          />
+          {#if errors.snatAddress}
+            <span class="text-xs mt-1 block" style="color: var(--danger);">{errors.snatAddress}</span>
+          {/if}
+          <span class="text-xs mt-1 block" style="color: var(--text-muted);">Required when using fixed <code>snat to ...</code>.</span>
+        </div>
+      {/if}
 
       <div class="mb-4">
         <label for="mssMode" class="label">
