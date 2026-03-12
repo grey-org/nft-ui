@@ -73,7 +73,7 @@ export async function fetchForwardingRules() {
   return request('/forwarding');
 }
 
-export async function addForwardingRule(srcPort, dstIP, dstPort, protocol, comment, limitMbps) {
+export async function addForwardingRule(srcPort, dstIP, dstPort, protocol, comment, limitMbps, mssMode) {
   return request('/forwarding', {
     method: 'POST',
     body: JSON.stringify({
@@ -83,11 +83,12 @@ export async function addForwardingRule(srcPort, dstIP, dstPort, protocol, comme
       protocol,
       comment,
       limit_mbps: limitMbps || 0,
+      mss_mode: mssMode || 'pmtu',
     }),
   });
 }
 
-export async function editForwardingRule(id, dstIP, dstPort, protocol, comment, limitMbps) {
+export async function editForwardingRule(id, dstIP, dstPort, protocol, comment, limitMbps, mssMode) {
   return request(`/forwarding/${encodeURIComponent(id)}`, {
     method: 'PUT',
     body: JSON.stringify({
@@ -96,6 +97,7 @@ export async function editForwardingRule(id, dstIP, dstPort, protocol, comment, 
       protocol,
       comment,
       limit_mbps: limitMbps || 0,
+      mss_mode: mssMode || 'pmtu',
     }),
   });
 }

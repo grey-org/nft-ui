@@ -16,6 +16,7 @@
   let protocol = $state('both');
   let comment = $state('');
   let limitMbps = $state('0');
+  let mssMode = $state('pmtu');
   let submitting = $state(false);
   let errors = $state({});
 
@@ -56,7 +57,8 @@
         parseInt(dstPort, 10),
         protocol,
         comment,
-        parseInt(limitMbps, 10)
+        parseInt(limitMbps, 10),
+        mssMode
       );
       onclose?.();
     } catch (e) {
@@ -181,6 +183,18 @@
           placeholder="e.g. SSH tunnel"
           maxlength="100"
         />
+      </div>
+
+      <div class="mb-4">
+        <label for="mssMode" class="label">
+          <span>TCP MSS Handling</span>
+        </label>
+        <select id="mssMode" class="select" bind:value={mssMode}>
+          <option value="pmtu">Auto clamp to PMTU (recommended)</option>
+          <option value="fixed1452">Fixed MSS 1452 (legacy compatibility)</option>
+          <option value="disabled">Disabled</option>
+        </select>
+        <span class="text-xs mt-1 block" style="color: var(--text-muted);">Applies to TCP SYN/SYN-ACK only. PMTU mode maps to <code>tcp option maxseg size set rt mtu</code>.</span>
       </div>
 
       <div class="mb-6">

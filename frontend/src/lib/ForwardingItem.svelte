@@ -120,6 +120,18 @@
             <span style="color: var(--text);">{rule.limit_mbps} Mbps</span>
           </div>
         {/if}
+        <div class="flex gap-2 mb-2 text-sm">
+          <span style="color: var(--text-muted);">TCP MSS:</span>
+          <span style="color: var(--text);">
+            {#if rule.mss_mode === 'pmtu'}
+              Auto PMTU clamp
+            {:else if rule.mss_mode === 'disabled'}
+              Disabled
+            {:else}
+              Fixed 1452
+            {/if}
+          </span>
+        </div>
 
         {#if !$readOnly && rule.managed}
           <div class="flex gap-2 mt-4">

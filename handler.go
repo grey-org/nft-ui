@@ -403,7 +403,14 @@ func (h *Handler) AddForwarding(c echo.Context) error {
 		})
 	}
 
-	if err := h.fwd.AddForwardingRule(req.SrcPort, req.DstIP, req.DstPort, req.Protocol, req.Comment, req.LimitMbps); err != nil {
+	if normalizeMSSMode(req.MSSMode) == "" {
+		return c.JSON(http.StatusBadRequest, APIResponse{
+			Success: false,
+			Error:   "MSS mode must be 'pmtu', 'fixed1452', or 'disabled'",
+		})
+	}
+
+	if err := h.fwd.AddForwardingRule(req.SrcPort, req.DstIP, req.DstPort, req.Protocol, req.Comment, req.LimitMbps, req.MSSMode); err != nil {
 		h.logger.Printf("Error adding forwarding rule: %v", err)
 		return c.JSON(http.StatusInternalServerError, APIResponse{
 			Success: false,
@@ -411,7 +418,7 @@ func (h *Handler) AddForwarding(c echo.Context) error {
 		})
 	}
 
-	h.logger.Printf("Forwarding rule added: %d -> %s:%d (%s) limit=%d Mbps", req.SrcPort, req.DstIP, req.DstPort, req.Protocol, req.LimitMbps)
+	h.logger.Printf("Forwarding rule added: %d -> %s:%d (%s) limit=%d Mbps mss=%s", req.SrcPort, req.DstIP, req.DstPort, req.Protocol, req.LimitMbps, normalizeMSSMode(req.MSSMode))
 	h.saveRuleset()
 	return c.JSON(http.StatusCreated, APIResponse{
 		Success: true,
@@ -452,7 +459,14 @@ func (h *Handler) EditForwarding(c echo.Context) error {
 		})
 	}
 
-	if err := h.fwd.EditForwardingRule(id, req.DstIP, req.DstPort, req.Protocol, req.Comment, req.LimitMbps); err != nil {
+	if normalizeMSSMode(req.MSSMode) == "" {
+		return c.JSON(http.StatusBadRequest, APIResponse{
+			Success: false,
+			Error:   "MSS mode must be 'pmtu', 'fixed1452', or 'disabled'",
+		})
+	}
+
+	if err := h.fwd.EditForwardingRule(id, req.DstIP, req.DstPort, req.Protocol, req.Comment, req.LimitMbps, req.MSSMode); err != nil {
 		h.logger.Printf("Error editing forwarding rule %s: %v", id, err)
 		return c.JSON(http.StatusInternalServerError, APIResponse{
 			Success: false,
@@ -460,7 +474,7 @@ func (h *Handler) EditForwarding(c echo.Context) error {
 		})
 	}
 
-	h.logger.Printf("Forwarding rule edited: %s -> %s:%d (%s) limit=%d Mbps", id, req.DstIP, req.DstPort, req.Protocol, req.LimitMbps)
+	h.logger.Printf("Forwarding rule edited: %s -> %s:%d (%s) limit=%d Mbps mss=%s", id, req.DstIP, req.DstPort, req.Protocol, req.LimitMbps, normalizeMSSMode(req.MSSMode))
 	h.saveRuleset()
 	return c.JSON(http.StatusOK, APIResponse{
 		Success: true,
@@ -576,11 +590,11 @@ func (h *Handler) ExportBackup(c echo.Context) error {
 
 	// Build backup data
 	backup := BackupData{
-		Version:   1,
-		CreatedAt: time.Now().Format(time.RFC3339),
-		Quotas:    make([]BackupQuota, 0, len(quotas)),
+		Version:    1,
+		CreatedAt:  time.Now().Format(time.RFC3339),
+		Quotas:     make([]BackupQuota, 0, len(quotas)),
 		Forwarding: make([]BackupForwarding, 0, len(forwardingRules)),
-		Ports:     make([]int, 0),
+		Ports:      make([]int, 0),
 	}
 
 	// Convert quotas
@@ -601,6 +615,7 @@ func (h *Handler) ExportBackup(c echo.Context) error {
 			Protocol:  rule.Protocol,
 			Comment:   rule.Comment,
 			LimitMbps: rule.LimitMbps,
+			MSSMode:   rule.MSSMode,
 			Enabled:   rule.Enabled,
 		})
 	}
@@ -658,7 +673,7 @@ func (h *Handler) ImportBackup(c echo.Context) error {
 	for _, f := range backup.Forwarding {
 		if f.Enabled {
 			// Add as active rule
-			err := h.fwd.AddForwardingRule(f.SrcPort, f.DstIP, f.DstPort, f.Protocol, f.Comment, f.LimitMbps)
+			err := h.fwd.AddForwardingRule(f.SrcPort, f.DstIP, f.DstPort, f.Protocol, f.Comment, f.LimitMbps, f.MSSMode)
 			if err != nil {
 				h.logger.Printf("Skipping forwarding rule %d: %v", f.SrcPort, err)
 				summary.ForwardingSkipped++
@@ -668,7 +683,7 @@ func (h *Handler) ImportBackup(c echo.Context) error {
 		} else {
 			// Add as disabled rule - we'll use the forwarding manager's internal method
 			// Since there's no public API for adding disabled rules, we'll add it first then disable it
-			err := h.fwd.AddForwardingRule(f.SrcPort, f.DstIP, f.DstPort, f.Protocol, f.Comment, f.LimitMbps)
+			err := h.fwd.AddForwardingRule(f.SrcPort, f.DstIP, f.DstPort, f.Protocol, f.Comment, f.LimitMbps, f.MSSMode)
 			if err != nil {
 				h.logger.Printf("Skipping disabled forwarding rule %d: %v", f.SrcPort, err)
 				summary.ForwardingSkipped++

@@ -163,9 +163,9 @@ export async function loadForwardingRules() {
 }
 
 // Add forwarding rule
-export async function addForwardingRule(srcPort, dstIP, dstPort, protocol, comment, limitMbps) {
+export async function addForwardingRule(srcPort, dstIP, dstPort, protocol, comment, limitMbps, mssMode) {
   try {
-    await apiAddForwarding(srcPort, dstIP, dstPort, protocol, comment, limitMbps);
+    await apiAddForwarding(srcPort, dstIP, dstPort, protocol, comment, limitMbps, mssMode);
     success('Forwarding rule added');
     await loadForwardingRules();
   } catch (e) {
@@ -175,9 +175,9 @@ export async function addForwardingRule(srcPort, dstIP, dstPort, protocol, comme
 }
 
 // Edit forwarding rule
-export async function editForwardingRule(id, dstIP, dstPort, protocol, comment, limitMbps) {
+export async function editForwardingRule(id, dstIP, dstPort, protocol, comment, limitMbps, mssMode) {
   try {
-    await apiEditForwarding(id, dstIP, dstPort, protocol, comment, limitMbps);
+    await apiEditForwarding(id, dstIP, dstPort, protocol, comment, limitMbps, mssMode);
     success('Forwarding rule updated');
     await loadForwardingRules();
   } catch (e) {

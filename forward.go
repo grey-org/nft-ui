@@ -21,8 +21,8 @@ const ForwardingComment = "nft-ui fwd"
 
 // ForwardingManager handles port forwarding (DNAT + MASQUERADE) operations
 type ForwardingManager struct {
-	mu                  sync.Mutex
-	binary              string
+	mu                   sync.Mutex
+	binary               string
 	disabledForwardsPath string
 }
 
@@ -33,7 +33,7 @@ func NewForwardingManager(cfg *Config) *ForwardingManager {
 		path = "/var/lib/nft-ui/disabled-forwards.json"
 	}
 	return &ForwardingManager{
-		binary:              cfg.NFTBinary,
+		binary:               cfg.NFTBinary,
 		disabledForwardsPath: path,
 	}
 }
@@ -193,13 +193,19 @@ func (m *ForwardingManager) ListForwardingRules() ([]ForwardingRule, error) {
 		return nil, err
 	}
 
-	// Get limit information from filter forward chain
+	// Get limit and MSS information from filter forward chain
 	limitMap := m.extractLimitsFromForwardChain()
+	mssModeMap := m.extractMSSModesFromForwardChain()
 
-	// Apply limits to enabled rules
+	// Apply limits and MSS modes to enabled rules
 	for i := range enabledRules {
 		if limit, ok := limitMap[enabledRules[i].SrcPort]; ok {
 			enabledRules[i].LimitMbps = limit
+		}
+		if mssMode, ok := mssModeMap[enabledRules[i].SrcPort]; ok {
+			enabledRules[i].MSSMode = mssMode
+		} else if enabledRules[i].Managed {
+			enabledRules[i].MSSMode = MSSModeFixed1452
 		}
 	}
 
@@ -263,6 +269,49 @@ func (m *ForwardingManager) extractLimitsFromForwardChain() map[int]int {
 	}
 
 	return limitMap
+}
+
+func (m *ForwardingManager) extractMSSModesFromForwardChain() map[int]string {
+	mssModeMap := make(map[int]string)
+
+	output, err := m.execNFT("-j", "-a", "list", "chain", "ip", "filter", "forward")
+	if err != nil {
+		return mssModeMap
+	}
+
+	var ruleset NFTRuleset
+	if err := json.Unmarshal(output, &ruleset); err != nil {
+		return mssModeMap
+	}
+
+	for _, obj := range ruleset.NFTables {
+		if obj.Rule == nil || obj.Rule.Chain != "forward" {
+			continue
+		}
+		if !strings.HasPrefix(obj.Rule.Comment, ForwardingComment) {
+			continue
+		}
+
+		srcPort := m.extractSrcPortFromComment(obj.Rule.Comment)
+		if srcPort == 0 {
+			continue
+		}
+
+		exprJSON, err := json.Marshal(obj.Rule.Expr)
+		if err != nil {
+			continue
+		}
+		exprText := string(exprJSON)
+		if strings.Contains(exprText, `"rt"`) && strings.Contains(exprText, `"mtu"`) {
+			mssModeMap[srcPort] = MSSModePMTU
+			continue
+		}
+		if strings.Contains(exprText, `1452`) {
+			mssModeMap[srcPort] = MSSModeFixed1452
+		}
+	}
+
+	return mssModeMap
 }
 
 // parseForwardingRules parses JSON output from prerouting and postrouting chains
@@ -440,12 +489,13 @@ func (m *ForwardingManager) extractForwardingRule(rule *NFTRule) *ForwardingRule
 		DstPort:  dstPort,
 		Protocol: protocol,
 		Comment:  userComment,
+		MSSMode:  MSSModeFixed1452,
 		// LimitMbps will be filled by extractLimitsFromForwardChain()
 	}
 }
 
 // AddForwardingRule adds a new port forwarding rule
-func (m *ForwardingManager) AddForwardingRule(srcPort int, dstIP string, dstPort int, protocol string, comment string, limitMbps int) error {
+func (m *ForwardingManager) AddForwardingRule(srcPort int, dstIP string, dstPort int, protocol string, comment string, limitMbps int, mssMode string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -493,6 +543,10 @@ func (m *ForwardingManager) AddForwardingRule(srcPort int, dstIP string, dstPort
 	if limitMbps < 0 {
 		return fmt.Errorf("invalid limit: %d (must be >= 0)", limitMbps)
 	}
+	mssMode = normalizeMSSMode(mssMode)
+	if mssMode == "" {
+		return fmt.Errorf("invalid MSS mode: %s", mssMode)
+	}
 
 	// Build comment string
 	fullComment := fmt.Sprintf("%s %d", ForwardingComment, srcPort)
@@ -529,8 +583,8 @@ func (m *ForwardingManager) AddForwardingRule(srcPort int, dstIP string, dstPort
 		return fmt.Errorf("failed to add forward limit rules: %w", err)
 	}
 
-	// Add TCP MSS clamping rule to prevent MTU-related stalls
-	if err := m.addMSSClampRule(dstIP, fullComment); err != nil {
+	// Add TCP MSS handling rule to prevent MTU-related stalls
+	if err := m.addMSSClampRule(dstIP, fullComment, mssMode); err != nil {
 		// Rollback: delete previous rules
 		m.deleteDNATRuleBySrcPort(srcPort)
 		m.deleteMasqueradeRuleBySrcPort(srcPort)
@@ -644,29 +698,47 @@ func (m *ForwardingManager) addOutputDNATRule(srcPort int, dstIP string, dstPort
 	return err
 }
 
-// addMSSClampRule adds bidirectional TCP MSS clamping rules in filter forward chain to prevent MTU-related stalls
-func (m *ForwardingManager) addMSSClampRule(dstIP string, comment string) error {
+// addMSSClampRule adds bidirectional TCP MSS rules in filter forward chain.
+// Supported modes: pmtu (recommended), fixed1452 (legacy), disabled.
+func (m *ForwardingManager) addMSSClampRule(dstIP string, comment string, mode string) error {
+	mode = normalizeMSSMode(mode)
+	if mode == "" {
+		return fmt.Errorf("invalid MSS mode")
+	}
+	if mode == MSSModeDisabled {
+		return nil
+	}
+
 	// Ensure filter table and forward chain exist
 	if err := m.EnsureFilterForwardSetup(); err != nil {
 		return err
 	}
 
+	setArgs := []string{"rt", "mtu"}
+	if mode == MSSModeFixed1452 {
+		setArgs = []string{"1452"}
+	}
+
 	// Outbound: to destination
-	if _, err := m.execNFT("add", "rule", "ip", "filter", "forward",
+	outArgs := []string{"add", "rule", "ip", "filter", "forward",
 		"ip", "daddr", dstIP,
 		"tcp", "flags", "syn",
-		"tcp", "option", "maxseg", "size", "set", "1452",
-		"comment", fmt.Sprintf(`"%s"`, comment)); err != nil {
-		return fmt.Errorf("failed to add outbound MSS clamp rule: %w", err)
+		"tcp", "option", "maxseg", "size", "set"}
+	outArgs = append(outArgs, setArgs...)
+	outArgs = append(outArgs, "comment", fmt.Sprintf(`"%s"`, comment))
+	if _, err := m.execNFT(outArgs...); err != nil {
+		return fmt.Errorf("failed to add outbound MSS rule: %w", err)
 	}
 
 	// Inbound: SYN-ACK from destination
-	if _, err := m.execNFT("add", "rule", "ip", "filter", "forward",
+	inArgs := []string{"add", "rule", "ip", "filter", "forward",
 		"ip", "saddr", dstIP,
 		"tcp", "flags", "syn",
-		"tcp", "option", "maxseg", "size", "set", "1452",
-		"comment", fmt.Sprintf(`"%s"`, comment)); err != nil {
-		return fmt.Errorf("failed to add inbound MSS clamp rule: %w", err)
+		"tcp", "option", "maxseg", "size", "set"}
+	inArgs = append(inArgs, setArgs...)
+	inArgs = append(inArgs, "comment", fmt.Sprintf(`"%s"`, comment))
+	if _, err := m.execNFT(inArgs...); err != nil {
+		return fmt.Errorf("failed to add inbound MSS rule: %w", err)
 	}
 
 	return nil
@@ -859,7 +931,7 @@ func (m *ForwardingManager) DeleteForwardingRule(id string) error {
 }
 
 // EditForwardingRule modifies an existing forwarding rule
-func (m *ForwardingManager) EditForwardingRule(id string, dstIP string, dstPort int, protocol string, comment string, limitMbps int) error {
+func (m *ForwardingManager) EditForwardingRule(id string, dstIP string, dstPort int, protocol string, comment string, limitMbps int, mssMode string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -882,6 +954,10 @@ func (m *ForwardingManager) EditForwardingRule(id string, dstIP string, dstPort 
 	if limitMbps < 0 {
 		return fmt.Errorf("invalid limit: %d (must be >= 0)", limitMbps)
 	}
+	mssMode = normalizeMSSMode(mssMode)
+	if mssMode == "" {
+		return fmt.Errorf("invalid MSS mode: %s", mssMode)
+	}
 
 	comment = sanitizeComment(comment)
 
@@ -895,6 +971,7 @@ func (m *ForwardingManager) EditForwardingRule(id string, dstIP string, dstPort 
 			disabledRules[i].Protocol = protocol
 			disabledRules[i].Comment = comment
 			disabledRules[i].LimitMbps = limitMbps
+			disabledRules[i].MSSMode = mssMode
 			return m.saveDisabledRules(disabledRules)
 		}
 	}
@@ -936,7 +1013,7 @@ func (m *ForwardingManager) EditForwardingRule(id string, dstIP string, dstPort 
 		return fmt.Errorf("failed to add forward limit rules: %w", err)
 	}
 
-	if err := m.addMSSClampRule(dstIP, fullComment); err != nil {
+	if err := m.addMSSClampRule(dstIP, fullComment, mssMode); err != nil {
 		m.deleteDNATRuleBySrcPort(srcPort)
 		m.deleteMasqueradeRuleBySrcPort(srcPort)
 		m.deleteOutputDNATRuleBySrcPort(srcPort)
@@ -1011,7 +1088,7 @@ func (m *ForwardingManager) EnableForwardingRule(id string) error {
 		return fmt.Errorf("failed to add forward limit rules: %w", err)
 	}
 
-	if err := m.addMSSClampRule(rule.DstIP, fullComment); err != nil {
+	if err := m.addMSSClampRule(rule.DstIP, fullComment, rule.MSSMode); err != nil {
 		m.deleteDNATRuleBySrcPort(rule.SrcPort)
 		m.deleteMasqueradeRuleBySrcPort(rule.SrcPort)
 		m.deleteOutputDNATRuleBySrcPort(rule.SrcPort)
@@ -1059,21 +1136,23 @@ func (m *ForwardingManager) DisableForwardingRule(id string) error {
 	if err := m.deleteDNATRuleBySrcPort(srcPort); err != nil {
 		return fmt.Errorf("failed to delete DNAT rule: %w", err)
 	}
-	m.deleteMasqueradeRuleBySrcPort(srcPort)   // Ignore errors
-	m.deleteOutputDNATRuleBySrcPort(srcPort)   // Ignore errors
-	m.deleteForwardLimitRules(srcPort)         // Ignore errors
-	m.deleteMSSClampRules(srcPort)             // Ignore errors
+	m.deleteMasqueradeRuleBySrcPort(srcPort) // Ignore errors
+	m.deleteOutputDNATRuleBySrcPort(srcPort) // Ignore errors
+	m.deleteForwardLimitRules(srcPort)       // Ignore errors
+	m.deleteMSSClampRules(srcPort)           // Ignore errors
 
 	// Save to disabled rules
 	disabledRules, _ := m.loadDisabledRules()
 	disabledRule := ForwardingRule{
-		ID:       rule.ID,
-		SrcPort:  rule.SrcPort,
-		DstIP:    rule.DstIP,
-		DstPort:  rule.DstPort,
-		Protocol: rule.Protocol,
-		Enabled:  false,
-		Comment:  rule.Comment,
+		ID:        rule.ID,
+		SrcPort:   rule.SrcPort,
+		DstIP:     rule.DstIP,
+		DstPort:   rule.DstPort,
+		Protocol:  rule.Protocol,
+		Enabled:   false,
+		Comment:   rule.Comment,
+		LimitMbps: rule.LimitMbps,
+		MSSMode:   rule.MSSMode,
 	}
 	disabledRules = append(disabledRules, disabledRule)
 	return m.saveDisabledRules(disabledRules)
@@ -1183,6 +1262,11 @@ func (m *ForwardingManager) loadDisabledRules() ([]ForwardingRule, error) {
 	for i := range file.Rules {
 		file.Rules[i].Enabled = false
 		file.Rules[i].ID = fmt.Sprintf("fwd_%d", file.Rules[i].SrcPort)
+		if normalizeMSSMode(file.Rules[i].MSSMode) == "" {
+			file.Rules[i].MSSMode = MSSModeFixed1452
+		} else {
+			file.Rules[i].MSSMode = normalizeMSSMode(file.Rules[i].MSSMode)
+		}
 	}
 
 	return file.Rules, nil

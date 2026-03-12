@@ -136,6 +136,26 @@ type ForwardingRule struct {
 	PreHandle  int64  `json:"pre_handle"`  // nft handle for prerouting DNAT rule
 	PostHandle int64  `json:"post_handle"` // nft handle for postrouting MASQUERADE rule
 	LimitMbps  int    `json:"limit_mbps"`  // Bandwidth limit in Mbps (0 = no limit)
+	MSSMode    string `json:"mss_mode"`    // "pmtu" | "fixed1452" | "disabled"
+}
+
+const (
+	MSSModePMTU      = "pmtu"
+	MSSModeFixed1452 = "fixed1452"
+	MSSModeDisabled  = "disabled"
+)
+
+func normalizeMSSMode(mode string) string {
+	switch mode {
+	case "", MSSModePMTU:
+		return MSSModePMTU
+	case MSSModeFixed1452:
+		return MSSModeFixed1452
+	case MSSModeDisabled:
+		return MSSModeDisabled
+	default:
+		return ""
+	}
 }
 
 // AddForwardingRequest is the request body for adding a new forwarding rule
@@ -146,6 +166,7 @@ type AddForwardingRequest struct {
 	Protocol  string `json:"protocol"`
 	Comment   string `json:"comment"`
 	LimitMbps int    `json:"limit_mbps"`
+	MSSMode   string `json:"mss_mode"`
 }
 
 // EditForwardingRequest is the request body for editing a forwarding rule
@@ -155,6 +176,7 @@ type EditForwardingRequest struct {
 	Protocol  string `json:"protocol"`
 	Comment   string `json:"comment"`
 	LimitMbps int    `json:"limit_mbps"`
+	MSSMode   string `json:"mss_mode"`
 }
 
 // ForwardingResponse is the API response for listing forwarding rules
@@ -192,15 +214,16 @@ type BackupForwarding struct {
 	Protocol  string `json:"protocol"`
 	Comment   string `json:"comment"`
 	LimitMbps int    `json:"limit_mbps"`
+	MSSMode   string `json:"mss_mode,omitempty"`
 	Enabled   bool   `json:"enabled"`
 }
 
 // ImportSummary represents the result of an import operation
 type ImportSummary struct {
-	QuotasAdded      int `json:"quotas_added"`
-	QuotasSkipped    int `json:"quotas_skipped"`
-	ForwardingAdded  int `json:"forwarding_added"`
+	QuotasAdded       int `json:"quotas_added"`
+	QuotasSkipped     int `json:"quotas_skipped"`
+	ForwardingAdded   int `json:"forwarding_added"`
 	ForwardingSkipped int `json:"forwarding_skipped"`
-	PortsAdded       int `json:"ports_added"`
-	PortsSkipped     int `json:"ports_skipped"`
+	PortsAdded        int `json:"ports_added"`
+	PortsSkipped      int `json:"ports_skipped"`
 }
