@@ -37,6 +37,9 @@ func main() {
 
 	// Initialize forwarding manager
 	fwdMgr := NewForwardingManager(cfg)
+	if err := fwdMgr.ReconcileManagedForwardingRules(); err != nil {
+		logger.Printf("Warning: failed to reconcile forwarding rules: %v", err)
+	}
 
 	// Initialize token generator (may be nil if not configured)
 	var tokenGen *TokenGenerator

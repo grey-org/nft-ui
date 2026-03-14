@@ -24,6 +24,8 @@ type ForwardingManager struct {
 	mu                   sync.Mutex
 	binary               string
 	disabledForwardsPath string
+	filterFamily         string
+	filterTable          string
 }
 
 // NewForwardingManager creates a new ForwardingManager
@@ -35,7 +37,17 @@ func NewForwardingManager(cfg *Config) *ForwardingManager {
 	return &ForwardingManager{
 		binary:               cfg.NFTBinary,
 		disabledForwardsPath: path,
+		filterFamily:         cfg.TableFamily,
+		filterTable:          cfg.TableName,
 	}
+}
+
+func (m *ForwardingManager) managedForwardChainRef() (string, string, string) {
+	return m.filterFamily, m.filterTable, ForwardChainName
+}
+
+func (m *ForwardingManager) legacyForwardChainRef() (string, string, string) {
+	return "ip", "filter", ForwardChainName
 }
 
 // execNFT executes an nft command and returns the output
@@ -51,9 +63,33 @@ func (m *ForwardingManager) execNFT(args ...string) ([]byte, error) {
 	return output, nil
 }
 
-// EnsureFilterForwardSetup ensures the filter table and forward chain exist,
-// and that the established/related fast-path rule is present
+// EnsureFilterForwardSetup ensures the configured filter table and forward chain exist.
 func (m *ForwardingManager) EnsureFilterForwardSetup() error {
+	family, table, chain := m.managedForwardChainRef()
+
+	// Check if filter table exists
+	_, err := m.execNFT("list", "table", family, table)
+	if err != nil {
+		if _, err := m.execNFT("add", "table", family, table); err != nil {
+			return fmt.Errorf("failed to create filter table %s %s: %w", family, table, err)
+		}
+	}
+
+	// Check if forward chain exists
+	_, err = m.execNFT("list", "chain", family, table, chain)
+	if err != nil {
+		if _, err := m.execNFT("add", "chain", family, table, chain,
+			"{ type filter hook forward priority filter ; policy accept ; }"); err != nil {
+			return fmt.Errorf("failed to create %s chain in %s %s: %w", chain, family, table, err)
+		}
+	}
+
+	return nil
+}
+
+// EnsureLegacyMSSForwardSetup keeps the legacy ip filter forward chain available
+// for MSS rules that are evaluated separately from the main managed filter chain.
+func (m *ForwardingManager) EnsureLegacyMSSForwardSetup() error {
 	// Check if filter table exists
 	_, err := m.execNFT("list", "table", "ip", "filter")
 	if err != nil {
@@ -63,7 +99,6 @@ func (m *ForwardingManager) EnsureFilterForwardSetup() error {
 		}
 	}
 
-	chainCreated := false
 	// Check if forward chain exists
 	_, err = m.execNFT("list", "chain", "ip", "filter", "forward")
 	if err != nil {
@@ -72,50 +107,42 @@ func (m *ForwardingManager) EnsureFilterForwardSetup() error {
 			"{ type filter hook forward priority filter ; policy accept ; }"); err != nil {
 			return fmt.Errorf("failed to create forward chain: %w", err)
 		}
-		chainCreated = true
 	}
 
-	// Ensure ct state established,related accept rule exists as fast-path
-	if err := m.ensureConntrackFastPath(chainCreated); err != nil {
+	// Older releases inserted a global conntrack fast-path rule here, but that
+	// bypasses later MSS and limit rules. Clean it up if present.
+	if err := m.deleteConntrackFastPath(); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// ensureConntrackFastPath ensures a "ct state established,related accept" rule
-// exists at the top of the forward chain for performance
-func (m *ForwardingManager) ensureConntrackFastPath(chainJustCreated bool) error {
+// deleteConntrackFastPath removes the legacy global conntrack fast-path rule so
+// later MSS and limit rules in the same chain still see reply packets.
+func (m *ForwardingManager) deleteConntrackFastPath() error {
 	const ctComment = "nft-ui ct-fastpath"
 
-	if !chainJustCreated {
-		// Check if rule already exists
-		output, err := m.execNFT("-j", "-a", "list", "chain", "ip", "filter", "forward")
-		if err != nil {
-			return nil // best effort
-		}
-
-		var ruleset NFTRuleset
-		if err := json.Unmarshal(output, &ruleset); err != nil {
-			return nil
-		}
-
-		for _, obj := range ruleset.NFTables {
-			if obj.Rule == nil || obj.Rule.Chain != "forward" {
-				continue
-			}
-			if obj.Rule.Comment == ctComment {
-				return nil // already exists
-			}
-		}
+	output, err := m.execNFT("-j", "-a", "list", "chain", "ip", "filter", "forward")
+	if err != nil {
+		return nil // best effort
 	}
 
-	// Insert at position 0 (top of chain)
-	if _, err := m.execNFT("insert", "rule", "ip", "filter", "forward",
-		"ct", "state", "established,related",
-		"accept",
-		"comment", fmt.Sprintf(`"%s"`, ctComment)); err != nil {
-		return fmt.Errorf("failed to add conntrack fast-path rule: %w", err)
+	var ruleset NFTRuleset
+	if err := json.Unmarshal(output, &ruleset); err != nil {
+		return nil
+	}
+
+	for _, obj := range ruleset.NFTables {
+		if obj.Rule == nil || obj.Rule.Chain != "forward" {
+			continue
+		}
+		if obj.Rule.Comment == ctComment {
+			if _, err := m.execNFT("delete", "rule", "ip", "filter", "forward",
+				"handle", strconv.FormatInt(obj.Rule.Handle, 10)); err != nil {
+				return fmt.Errorf("failed to delete legacy conntrack fast-path rule: %w", err)
+			}
+		}
 	}
 
 	return nil
@@ -228,51 +255,54 @@ func (m *ForwardingManager) ListForwardingRules() ([]ForwardingRule, error) {
 	return allRules, nil
 }
 
-// extractLimitsFromForwardChain extracts bandwidth limits from filter forward chain
-func (m *ForwardingManager) extractLimitsFromForwardChain() map[int]int {
-	limitMap := make(map[int]int)
-
-	output, err := m.execNFT("-j", "-a", "list", "chain", "ip", "filter", "forward")
+func (m *ForwardingManager) mergeLimitMapFromChain(limitMap map[int]int, family, table, chain string) {
+	output, err := m.execNFT("-j", "-a", "list", "chain", family, table, chain)
 	if err != nil {
-		// Chain might not exist, return empty map
-		return limitMap
+		return
 	}
 
 	var ruleset NFTRuleset
 	if err := json.Unmarshal(output, &ruleset); err != nil {
-		return limitMap
+		return
 	}
 
 	for _, obj := range ruleset.NFTables {
-		if obj.Rule == nil || obj.Rule.Chain != "forward" {
+		if obj.Rule == nil || obj.Rule.Chain != chain {
 			continue
 		}
-
-		// Only process rules with our comment
 		if !strings.HasPrefix(obj.Rule.Comment, ForwardingComment) {
 			continue
 		}
 
-		// Extract source port from comment
 		srcPort := m.extractSrcPortFromComment(obj.Rule.Comment)
 		if srcPort == 0 {
 			continue
 		}
 
-		// Look for limit expression
 		for _, expr := range obj.Rule.Expr {
 			if limitData, ok := expr["limit"]; ok {
 				if lm, ok := limitData.(map[string]interface{}); ok {
 					if rate, ok := lm["rate"].(float64); ok {
-						// Convert kbytes/second back to Mbps
-						// rate is in kbytes/s, convert: kbytes/s * 8 / 1000 = Mbps
-						limitMbps := int((rate * 8) / 1000)
-						limitMap[srcPort] = limitMbps
+						limitMap[srcPort] = int((rate * 8) / 1000)
 						break
 					}
 				}
 			}
 		}
+	}
+}
+
+// extractLimitsFromForwardChain extracts bandwidth limits from both the legacy
+// ip filter forward chain and the active managed filter forward chain.
+func (m *ForwardingManager) extractLimitsFromForwardChain() map[int]int {
+	limitMap := make(map[int]int)
+
+	legacyFamily, legacyTable, legacyChain := m.legacyForwardChainRef()
+	m.mergeLimitMapFromChain(limitMap, legacyFamily, legacyTable, legacyChain)
+
+	family, table, chain := m.managedForwardChainRef()
+	if family != legacyFamily || table != legacyTable {
+		m.mergeLimitMapFromChain(limitMap, family, table, chain)
 	}
 
 	return limitMap
@@ -327,21 +357,19 @@ func (m *ForwardingManager) extractSourceNATFromPostrouting(postData []byte) map
 	return sourceNATMap
 }
 
-func (m *ForwardingManager) extractMSSModesFromForwardChain() map[int]string {
-	mssModeMap := make(map[int]string)
-
-	output, err := m.execNFT("-j", "-a", "list", "chain", "ip", "filter", "forward")
+func (m *ForwardingManager) mergeMSSModeMapFromChain(mssModeMap map[int]string, family, table, chain string) {
+	output, err := m.execNFT("-j", "-a", "list", "chain", family, table, chain)
 	if err != nil {
-		return mssModeMap
+		return
 	}
 
 	var ruleset NFTRuleset
 	if err := json.Unmarshal(output, &ruleset); err != nil {
-		return mssModeMap
+		return
 	}
 
 	for _, obj := range ruleset.NFTables {
-		if obj.Rule == nil || obj.Rule.Chain != "forward" {
+		if obj.Rule == nil || obj.Rule.Chain != chain {
 			continue
 		}
 		if !strings.HasPrefix(obj.Rule.Comment, ForwardingComment) {
@@ -366,8 +394,91 @@ func (m *ForwardingManager) extractMSSModesFromForwardChain() map[int]string {
 			mssModeMap[srcPort] = MSSModeFixed1452
 		}
 	}
+}
+
+func (m *ForwardingManager) extractMSSModesFromForwardChain() map[int]string {
+	mssModeMap := make(map[int]string)
+
+	legacyFamily, legacyTable, legacyChain := m.legacyForwardChainRef()
+	m.mergeMSSModeMapFromChain(mssModeMap, legacyFamily, legacyTable, legacyChain)
+
+	family, table, chain := m.managedForwardChainRef()
+	if family != legacyFamily || table != legacyTable {
+		m.mergeMSSModeMapFromChain(mssModeMap, family, table, chain)
+	}
 
 	return mssModeMap
+}
+
+func (m *ForwardingManager) chainHasCommentPrefix(family, table, chain, commentPrefix string) bool {
+	output, err := m.execNFT("-j", "-a", "list", "chain", family, table, chain)
+	if err != nil {
+		return false
+	}
+
+	var ruleset NFTRuleset
+	if err := json.Unmarshal(output, &ruleset); err != nil {
+		return false
+	}
+
+	for _, obj := range ruleset.NFTables {
+		if obj.Rule == nil || obj.Rule.Chain != chain {
+			continue
+		}
+		if strings.HasPrefix(obj.Rule.Comment, commentPrefix) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// ReconcileManagedForwardingRules repairs managed forwarding rules created by
+// older releases by ensuring the active forward chain has explicit accept rules.
+func (m *ForwardingManager) ReconcileManagedForwardingRules() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if err := m.deleteConntrackFastPath(); err != nil {
+		return err
+	}
+
+	preOutput, err := m.execNFT("-j", "-a", "list", "chain", "ip", "nat", "prerouting")
+	if err != nil {
+		return nil
+	}
+	postOutput, err := m.execNFT("-j", "-a", "list", "chain", "ip", "nat", "postrouting")
+	if err != nil {
+		return nil
+	}
+
+	rules, err := m.parseForwardingRules(preOutput, postOutput)
+	if err != nil {
+		return err
+	}
+
+	family, table, chain := m.managedForwardChainRef()
+	for _, rule := range rules {
+		if !rule.Managed {
+			continue
+		}
+
+		commentPrefix := fmt.Sprintf("%s %d", ForwardingComment, rule.SrcPort)
+		if m.chainHasCommentPrefix(family, table, chain, commentPrefix) {
+			continue
+		}
+
+		fullComment := commentPrefix
+		if rule.Comment != "" {
+			fullComment = fmt.Sprintf("%s %s", fullComment, rule.Comment)
+		}
+
+		if err := m.addForwardAcceptRules(rule.DstIP, rule.DstPort, rule.Protocol, fullComment); err != nil {
+			return fmt.Errorf("failed to reconcile forward rule %d: %w", rule.SrcPort, err)
+		}
+	}
+
+	return nil
 }
 
 // parseForwardingRules parses JSON output from prerouting and postrouting chains
@@ -651,13 +762,21 @@ func (m *ForwardingManager) AddForwardingRule(srcPort int, dstIP string, dstPort
 		return fmt.Errorf("failed to add forward limit rules: %w", err)
 	}
 
+	if err := m.addForwardAcceptRules(dstIP, dstPort, protocol, fullComment); err != nil {
+		m.deleteDNATRuleBySrcPort(srcPort)
+		m.deleteMasqueradeRuleBySrcPort(srcPort)
+		m.deleteOutputDNATRuleBySrcPort(srcPort)
+		m.deleteForwardFilterRules(srcPort)
+		return fmt.Errorf("failed to add forward accept rules: %w", err)
+	}
+
 	// Add TCP MSS handling rule to prevent MTU-related stalls
-	if err := m.addMSSClampRule(dstIP, fullComment, mssMode); err != nil {
+	if err := m.addMSSClampRule(dstIP, dstPort, protocol, fullComment, mssMode); err != nil {
 		// Rollback: delete previous rules
 		m.deleteDNATRuleBySrcPort(srcPort)
 		m.deleteMasqueradeRuleBySrcPort(srcPort)
 		m.deleteOutputDNATRuleBySrcPort(srcPort)
-		m.deleteForwardLimitRules(srcPort)
+		m.deleteForwardFilterRules(srcPort)
 		return fmt.Errorf("failed to add MSS clamp rule: %w", err)
 	}
 
@@ -766,19 +885,20 @@ func (m *ForwardingManager) addOutputDNATRule(srcPort int, dstIP string, dstPort
 	return err
 }
 
-// addMSSClampRule adds bidirectional TCP MSS rules in filter forward chain.
+// addMSSClampRule adds bidirectional TCP MSS rules in the legacy ip filter
+// forward chain. MSS handling only applies to TCP traffic.
 // Supported modes: pmtu (recommended), fixed1452 (legacy), disabled.
-func (m *ForwardingManager) addMSSClampRule(dstIP string, comment string, mode string) error {
+func (m *ForwardingManager) addMSSClampRule(dstIP string, dstPort int, protocol string, comment string, mode string) error {
 	mode = normalizeMSSMode(mode)
 	if mode == "" {
 		return fmt.Errorf("invalid MSS mode")
 	}
-	if mode == MSSModeDisabled {
+	if mode == MSSModeDisabled || protocol == "udp" {
 		return nil
 	}
 
-	// Ensure filter table and forward chain exist
-	if err := m.EnsureFilterForwardSetup(); err != nil {
+	// Ensure legacy filter table and forward chain exist
+	if err := m.EnsureLegacyMSSForwardSetup(); err != nil {
 		return err
 	}
 
@@ -790,6 +910,7 @@ func (m *ForwardingManager) addMSSClampRule(dstIP string, comment string, mode s
 	// Outbound: to destination
 	outArgs := []string{"add", "rule", "ip", "filter", "forward",
 		"ip", "daddr", dstIP,
+		"tcp", "dport", strconv.Itoa(dstPort),
 		"tcp", "flags", "syn",
 		"tcp", "option", "maxseg", "size", "set"}
 	outArgs = append(outArgs, setArgs...)
@@ -801,6 +922,7 @@ func (m *ForwardingManager) addMSSClampRule(dstIP string, comment string, mode s
 	// Inbound: SYN-ACK from destination
 	inArgs := []string{"add", "rule", "ip", "filter", "forward",
 		"ip", "saddr", dstIP,
+		"tcp", "sport", strconv.Itoa(dstPort),
 		"tcp", "flags", "syn",
 		"tcp", "option", "maxseg", "size", "set"}
 	inArgs = append(inArgs, setArgs...)
@@ -859,18 +981,20 @@ func (m *ForwardingManager) addForwardLimitRules(dstIP string, dstPort int, prot
 		return err
 	}
 
+	family, table, chain := m.managedForwardChainRef()
+
 	// Outbound limit (to destination)
 	switch protocol {
 	case "tcp":
 		// TCP outbound
-		if _, err := m.execNFT("add", "rule", "ip", "filter", "forward",
+		if _, err := m.execNFT("add", "rule", family, table, chain,
 			"ip", "daddr", dstIP, "tcp", "dport", strconv.Itoa(dstPort),
 			"limit", "rate", "over", strconv.Itoa(limitKbytes), "kbytes/second",
 			"drop", "comment", fmt.Sprintf(`"%s"`, comment)); err != nil {
 			return fmt.Errorf("failed to add TCP outbound limit: %w", err)
 		}
 		// TCP inbound
-		if _, err := m.execNFT("add", "rule", "ip", "filter", "forward",
+		if _, err := m.execNFT("add", "rule", family, table, chain,
 			"ip", "saddr", dstIP, "tcp", "sport", strconv.Itoa(dstPort),
 			"limit", "rate", "over", strconv.Itoa(limitKbytes), "kbytes/second",
 			"drop", "comment", fmt.Sprintf(`"%s"`, comment)); err != nil {
@@ -878,14 +1002,14 @@ func (m *ForwardingManager) addForwardLimitRules(dstIP string, dstPort int, prot
 		}
 	case "udp":
 		// UDP outbound
-		if _, err := m.execNFT("add", "rule", "ip", "filter", "forward",
+		if _, err := m.execNFT("add", "rule", family, table, chain,
 			"ip", "daddr", dstIP, "udp", "dport", strconv.Itoa(dstPort),
 			"limit", "rate", "over", strconv.Itoa(limitKbytes), "kbytes/second",
 			"drop", "comment", fmt.Sprintf(`"%s"`, comment)); err != nil {
 			return fmt.Errorf("failed to add UDP outbound limit: %w", err)
 		}
 		// UDP inbound
-		if _, err := m.execNFT("add", "rule", "ip", "filter", "forward",
+		if _, err := m.execNFT("add", "rule", family, table, chain,
 			"ip", "saddr", dstIP, "udp", "sport", strconv.Itoa(dstPort),
 			"limit", "rate", "over", strconv.Itoa(limitKbytes), "kbytes/second",
 			"drop", "comment", fmt.Sprintf(`"%s"`, comment)); err != nil {
@@ -893,7 +1017,7 @@ func (m *ForwardingManager) addForwardLimitRules(dstIP string, dstPort int, prot
 		}
 	default: // "both"
 		// Both TCP/UDP outbound
-		if _, err := m.execNFT("add", "rule", "ip", "filter", "forward",
+		if _, err := m.execNFT("add", "rule", family, table, chain,
 			"ip", "daddr", dstIP, "meta", "l4proto", "{", "tcp,", "udp", "}",
 			"th", "dport", strconv.Itoa(dstPort),
 			"limit", "rate", "over", strconv.Itoa(limitKbytes), "kbytes/second",
@@ -901,7 +1025,7 @@ func (m *ForwardingManager) addForwardLimitRules(dstIP string, dstPort int, prot
 			return fmt.Errorf("failed to add outbound limit: %w", err)
 		}
 		// Both TCP/UDP inbound
-		if _, err := m.execNFT("add", "rule", "ip", "filter", "forward",
+		if _, err := m.execNFT("add", "rule", family, table, chain,
 			"ip", "saddr", dstIP, "meta", "l4proto", "{", "tcp,", "udp", "}",
 			"th", "sport", strconv.Itoa(dstPort),
 			"limit", "rate", "over", strconv.Itoa(limitKbytes), "kbytes/second",
@@ -913,11 +1037,71 @@ func (m *ForwardingManager) addForwardLimitRules(dstIP string, dstPort int, prot
 	return nil
 }
 
-// deleteForwardLimitRules deletes bandwidth limit rules from filter forward chain
-func (m *ForwardingManager) deleteForwardLimitRules(srcPort int) error {
-	output, err := m.execNFT("-j", "-a", "list", "chain", "ip", "filter", "forward")
+// addForwardAcceptRules adds explicit allow rules in the active managed forward
+// chain so DNAT traffic still works when the user's main forward policy is drop.
+func (m *ForwardingManager) addForwardAcceptRules(dstIP string, dstPort int, protocol string, comment string) error {
+	if err := m.EnsureFilterForwardSetup(); err != nil {
+		return err
+	}
+
+	family, table, chain := m.managedForwardChainRef()
+
+	switch protocol {
+	case "tcp":
+		if _, err := m.execNFT("add", "rule", family, table, chain,
+			"ip", "daddr", dstIP, "tcp", "dport", strconv.Itoa(dstPort),
+			"accept", "comment", fmt.Sprintf(`"%s"`, comment)); err != nil {
+			return fmt.Errorf("failed to add TCP outbound accept: %w", err)
+		}
+		if _, err := m.execNFT("add", "rule", family, table, chain,
+			"ip", "saddr", dstIP, "tcp", "sport", strconv.Itoa(dstPort),
+			"ct", "state", "established,related",
+			"accept", "comment", fmt.Sprintf(`"%s"`, comment)); err != nil {
+			return fmt.Errorf("failed to add TCP reply accept: %w", err)
+		}
+	case "udp":
+		if _, err := m.execNFT("add", "rule", family, table, chain,
+			"ip", "daddr", dstIP, "udp", "dport", strconv.Itoa(dstPort),
+			"accept", "comment", fmt.Sprintf(`"%s"`, comment)); err != nil {
+			return fmt.Errorf("failed to add UDP outbound accept: %w", err)
+		}
+		if _, err := m.execNFT("add", "rule", family, table, chain,
+			"ip", "saddr", dstIP, "udp", "sport", strconv.Itoa(dstPort),
+			"ct", "state", "established,related",
+			"accept", "comment", fmt.Sprintf(`"%s"`, comment)); err != nil {
+			return fmt.Errorf("failed to add UDP reply accept: %w", err)
+		}
+	default: // "both"
+		if _, err := m.execNFT("add", "rule", family, table, chain,
+			"ip", "daddr", dstIP, "meta", "l4proto", "{", "tcp,", "udp", "}",
+			"th", "dport", strconv.Itoa(dstPort),
+			"accept", "comment", fmt.Sprintf(`"%s"`, comment)); err != nil {
+			return fmt.Errorf("failed to add outbound accept: %w", err)
+		}
+		if _, err := m.execNFT("add", "rule", family, table, chain,
+			"ip", "saddr", dstIP, "meta", "l4proto", "{", "tcp,", "udp", "}",
+			"th", "sport", strconv.Itoa(dstPort),
+			"ct", "state", "established,related",
+			"accept", "comment", fmt.Sprintf(`"%s"`, comment)); err != nil {
+			return fmt.Errorf("failed to add reply accept: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func ruleHasExpr(rule *NFTRule, exprName string) bool {
+	for _, expr := range rule.Expr {
+		if _, ok := expr[exprName]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *ForwardingManager) deleteRulesByCommentPrefix(family, table, chain, commentPrefix string, shouldDelete func(*NFTRule) bool) error {
+	output, err := m.execNFT("-j", "-a", "list", "chain", family, table, chain)
 	if err != nil {
-		// Chain might not exist, ignore
 		return nil
 	}
 
@@ -926,24 +1110,40 @@ func (m *ForwardingManager) deleteForwardLimitRules(srcPort int) error {
 		return err
 	}
 
-	// Find and delete all limit rules with matching comment
-	commentPrefix := fmt.Sprintf("%s %d", ForwardingComment, srcPort)
 	for _, obj := range ruleset.NFTables {
-		if obj.Rule == nil || obj.Rule.Chain != "forward" {
+		if obj.Rule == nil || obj.Rule.Chain != chain {
 			continue
 		}
-		if strings.HasPrefix(obj.Rule.Comment, commentPrefix) {
-			// Check if this rule has a limit expression
-			hasLimit := false
-			for _, expr := range obj.Rule.Expr {
-				if _, ok := expr["limit"]; ok {
-					hasLimit = true
-					break
-				}
-			}
-			if hasLimit {
-				m.execNFT("delete", "rule", "ip", "filter", "forward", "handle", strconv.FormatInt(obj.Rule.Handle, 10))
-			}
+		if !strings.HasPrefix(obj.Rule.Comment, commentPrefix) {
+			continue
+		}
+		if !shouldDelete(obj.Rule) {
+			continue
+		}
+		m.execNFT("delete", "rule", family, table, chain, "handle", strconv.FormatInt(obj.Rule.Handle, 10))
+	}
+
+	return nil
+}
+
+// deleteForwardFilterRules deletes managed forward-chain limit and access rules.
+// It also cleans up legacy ip filter limit rules left by older releases.
+func (m *ForwardingManager) deleteForwardFilterRules(srcPort int) error {
+	commentPrefix := fmt.Sprintf("%s %d", ForwardingComment, srcPort)
+
+	family, table, chain := m.managedForwardChainRef()
+	if err := m.deleteRulesByCommentPrefix(family, table, chain, commentPrefix, func(rule *NFTRule) bool {
+		return true
+	}); err != nil {
+		return err
+	}
+
+	legacyFamily, legacyTable, legacyChain := m.legacyForwardChainRef()
+	if family != legacyFamily || table != legacyTable {
+		if err := m.deleteRulesByCommentPrefix(legacyFamily, legacyTable, legacyChain, commentPrefix, func(rule *NFTRule) bool {
+			return ruleHasExpr(rule, "limit")
+		}); err != nil {
+			return err
 		}
 	}
 
@@ -986,7 +1186,7 @@ func (m *ForwardingManager) DeleteForwardingRule(id string) error {
 		fmt.Printf("Warning: failed to delete output DNAT rule: %v\n", err)
 	}
 
-	if err := m.deleteForwardLimitRules(srcPort); err != nil {
+	if err := m.deleteForwardFilterRules(srcPort); err != nil {
 		// Log warning but don't fail
 		fmt.Printf("Warning: failed to delete forward limit rules: %v\n", err)
 	}
@@ -1062,7 +1262,7 @@ func (m *ForwardingManager) EditForwardingRule(id string, dstIP string, dstPort 
 	m.deleteDNATRuleBySrcPort(srcPort)
 	m.deleteMasqueradeRuleBySrcPort(srcPort)
 	m.deleteOutputDNATRuleBySrcPort(srcPort)
-	m.deleteForwardLimitRules(srcPort)
+	m.deleteForwardFilterRules(srcPort)
 	m.deleteMSSClampRules(srcPort)
 
 	// Build comment string
@@ -1094,11 +1294,19 @@ func (m *ForwardingManager) EditForwardingRule(id string, dstIP string, dstPort 
 		return fmt.Errorf("failed to add forward limit rules: %w", err)
 	}
 
-	if err := m.addMSSClampRule(dstIP, fullComment, mssMode); err != nil {
+	if err := m.addForwardAcceptRules(dstIP, dstPort, protocol, fullComment); err != nil {
 		m.deleteDNATRuleBySrcPort(srcPort)
 		m.deleteMasqueradeRuleBySrcPort(srcPort)
 		m.deleteOutputDNATRuleBySrcPort(srcPort)
-		m.deleteForwardLimitRules(srcPort)
+		m.deleteForwardFilterRules(srcPort)
+		return fmt.Errorf("failed to add forward accept rules: %w", err)
+	}
+
+	if err := m.addMSSClampRule(dstIP, dstPort, protocol, fullComment, mssMode); err != nil {
+		m.deleteDNATRuleBySrcPort(srcPort)
+		m.deleteMasqueradeRuleBySrcPort(srcPort)
+		m.deleteOutputDNATRuleBySrcPort(srcPort)
+		m.deleteForwardFilterRules(srcPort)
 		return fmt.Errorf("failed to add MSS clamp rule: %w", err)
 	}
 
@@ -1169,11 +1377,19 @@ func (m *ForwardingManager) EnableForwardingRule(id string) error {
 		return fmt.Errorf("failed to add forward limit rules: %w", err)
 	}
 
-	if err := m.addMSSClampRule(rule.DstIP, fullComment, rule.MSSMode); err != nil {
+	if err := m.addForwardAcceptRules(rule.DstIP, rule.DstPort, rule.Protocol, fullComment); err != nil {
 		m.deleteDNATRuleBySrcPort(rule.SrcPort)
 		m.deleteMasqueradeRuleBySrcPort(rule.SrcPort)
 		m.deleteOutputDNATRuleBySrcPort(rule.SrcPort)
-		m.deleteForwardLimitRules(rule.SrcPort)
+		m.deleteForwardFilterRules(rule.SrcPort)
+		return fmt.Errorf("failed to add forward accept rules: %w", err)
+	}
+
+	if err := m.addMSSClampRule(rule.DstIP, rule.DstPort, rule.Protocol, fullComment, rule.MSSMode); err != nil {
+		m.deleteDNATRuleBySrcPort(rule.SrcPort)
+		m.deleteMasqueradeRuleBySrcPort(rule.SrcPort)
+		m.deleteOutputDNATRuleBySrcPort(rule.SrcPort)
+		m.deleteForwardFilterRules(rule.SrcPort)
 		return fmt.Errorf("failed to add MSS clamp rule: %w", err)
 	}
 
@@ -1239,7 +1455,7 @@ func (m *ForwardingManager) DisableForwardingRule(id string) error {
 	}
 	m.deleteMasqueradeRuleBySrcPort(srcPort) // Ignore errors
 	m.deleteOutputDNATRuleBySrcPort(srcPort) // Ignore errors
-	m.deleteForwardLimitRules(srcPort)       // Ignore errors
+	m.deleteForwardFilterRules(srcPort)      // Ignore errors
 	m.deleteMSSClampRules(srcPort)           // Ignore errors
 
 	// Save to disabled rules
