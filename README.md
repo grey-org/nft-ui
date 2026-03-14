@@ -18,9 +18,16 @@ A web-based management tool for nftables firewall rules, including outbound traf
 
 ### Quick Install
 
+If GitHub access is slow or blocked in your region, fetch the installer through a GitHub proxy and pass `--github-proxy` so the script also proxies GitHub API and release downloads. `https://gh-proxy.com/` is one supported example; you can replace it with any compatible prefix-style GitHub proxy.
+
 **Stable (main branch):**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nft-ui/nft-ui/main/install.sh | sudo bash
+```
+
+**Stable via GitHub proxy:**
+```bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/nft-ui/nft-ui/main/install.sh | sudo bash -s -- --github-proxy https://gh-proxy.com/
 ```
 
 **Beta (dev branch):**
@@ -28,14 +35,26 @@ curl -fsSL https://raw.githubusercontent.com/nft-ui/nft-ui/main/install.sh | sud
 curl -fsSL https://raw.githubusercontent.com/nft-ui/nft-ui/dev/install.sh | sudo bash -s -- --beta
 ```
 
+**Beta via GitHub proxy:**
+```bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/nft-ui/nft-ui/dev/install.sh | sudo bash -s -- --beta --github-proxy https://gh-proxy.com/
+```
+
 **Specific version:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nft-ui/nft-ui/main/install.sh | sudo bash -s -- --tag v0.4.5
 ```
 
+**Specific version via GitHub proxy:**
+```bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/nft-ui/nft-ui/main/install.sh | sudo bash -s -- --tag v0.4.5 --github-proxy https://gh-proxy.com/
+```
+
 ### Manual Install
 
 Download the binary from [Releases](https://github.com/nft-ui/nft-ui/releases):
+
+If you need a GitHub proxy for manual installation too, prepend the original GitHub URL with the proxy base, for example `https://gh-proxy.com/https://github.com/...` or `https://gh-proxy.com/https://api.github.com/...`.
 
 **Stable (latest release):**
 ```bash
