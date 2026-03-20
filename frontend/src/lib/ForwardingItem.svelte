@@ -4,6 +4,7 @@
     removeForwardingRule,
     enableForwardingRule,
     disableForwardingRule,
+    testForwardingTarget as probeForwardingTarget,
   } from './stores.js';
   import { formatProtocol } from './utils.js';
   import ConfirmDialog from './ConfirmDialog.svelte';
@@ -15,6 +16,8 @@
   let showEditModal = $state(false);
   let showDeleteConfirm = $state(false);
   let processing = $state(false);
+  let testing = $state(false);
+  let lastTest = $state(null);
 
   async function handleToggleEnabled() {
     processing = true;
@@ -36,6 +39,53 @@
     } finally {
       processing = false;
       showDeleteConfirm = false;
+    }
+  }
+
+  async function handleTestConnection() {
+    testing = true;
+    try {
+      lastTest = await probeForwardingTarget(rule.dst_ip, rule.dst_port, rule.protocol);
+    } finally {
+      testing = false;
+    }
+  }
+
+  function formatTestTime(value) {
+    if (!value) return '';
+    return new Date(value).toLocaleString();
+  }
+
+  function getProbeBadgeClass(status) {
+    switch (status) {
+      case 'reachable':
+        return 'badge-success';
+      case 'unreachable':
+        return 'badge-danger';
+      default:
+        return 'badge-warning';
+    }
+  }
+
+  function getProbeStatusLabel(status) {
+    switch (status) {
+      case 'reachable':
+        return 'Reachable';
+      case 'unreachable':
+        return 'Unreachable';
+      default:
+        return 'Inconclusive';
+    }
+  }
+
+  function getProbeAccent(status) {
+    switch (status) {
+      case 'reachable':
+        return 'var(--success)';
+      case 'unreachable':
+        return 'var(--danger)';
+      default:
+        return 'var(--warning)';
     }
   }
 </script>
@@ -144,53 +194,86 @@
           </span>
         </div>
 
-        {#if !$readOnly && rule.managed}
-          <div class="flex gap-2 mt-4">
+        <div class="flex flex-wrap gap-2 mt-4">
+          <button
+            class="btn btn-sm btn-secondary"
+            onclick={handleTestConnection}
+            disabled={testing || processing}
+          >
+            {testing ? 'Testing...' : `Test ${formatProtocol(rule.protocol)}`}
+          </button>
+
+          {#if !$readOnly && rule.managed}
             <button
               class="btn btn-sm btn-secondary"
               onclick={handleToggleEnabled}
-              disabled={processing}
+              disabled={processing || testing}
             >
               {rule.enabled ? 'Disable' : 'Enable'}
             </button>
             <button
               class="btn btn-sm btn-secondary"
               onclick={() => showEditModal = true}
-              disabled={processing}
+              disabled={processing || testing}
             >
               Edit
             </button>
             <button
               class="btn btn-sm btn-danger"
               onclick={() => showDeleteConfirm = true}
-              disabled={processing}
+              disabled={processing || testing}
             >
               Delete
             </button>
-          </div>
-        {:else if !$readOnly && !rule.managed}
-          {#if rule.enabled}
-            <div class="text-sm p-3 rounded-lg mt-3" style="background-color: var(--surface-hover); color: var(--text-muted); border: 1px solid var(--border);">
-              This rule was created externally and cannot be modified through nft-ui.
-            </div>
-          {:else}
-            <div class="flex gap-2 mt-4">
-              <button
-                class="btn btn-sm btn-secondary"
-                onclick={handleToggleEnabled}
-                disabled={processing}
-              >
-                Enable
-              </button>
-              <button
-                class="btn btn-sm btn-danger"
-                onclick={() => showDeleteConfirm = true}
-                disabled={processing}
-              >
-                Delete
-              </button>
-            </div>
+          {:else if !$readOnly && !rule.managed && !rule.enabled}
+            <button
+              class="btn btn-sm btn-secondary"
+              onclick={handleToggleEnabled}
+              disabled={processing || testing}
+            >
+              Enable
+            </button>
+            <button
+              class="btn btn-sm btn-danger"
+              onclick={() => showDeleteConfirm = true}
+              disabled={processing || testing}
+            >
+              Delete
+            </button>
           {/if}
+        </div>
+
+        {#if !$readOnly && !rule.managed && rule.enabled}
+          <div class="text-sm p-3 rounded-lg mt-3" style="background-color: var(--surface-hover); color: var(--text-muted); border: 1px solid var(--border);">
+            This rule was created externally and cannot be modified through nft-ui.
+          </div>
+        {/if}
+
+        {#if lastTest}
+          <div
+            class="mt-4 p-3 rounded-lg"
+            style={`background-color: var(--surface-hover); border: 1px solid var(--border); border-left: 3px solid ${getProbeAccent(lastTest.overall_status)};`}
+          >
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <div class="text-sm font-medium" style="color: var(--text);">Last connectivity test</div>
+              <div class="text-xs" style="color: var(--text-muted);">{formatTestTime(lastTest.tested_at)}</div>
+            </div>
+
+            <div class="flex flex-col gap-2">
+              {#each lastTest.results as result}
+                <div class="rounded-md p-2" style="background-color: var(--surface); border: 1px solid var(--border);">
+                  <div class="flex flex-wrap items-center justify-between gap-2 text-sm">
+                    <div class="flex items-center gap-2">
+                      <span class={`badge ${getProbeBadgeClass(result.status)}`}>{result.protocol.toUpperCase()}</span>
+                      <span style="color: var(--text);">{getProbeStatusLabel(result.status)}</span>
+                    </div>
+                    <span class="font-mono text-xs" style="color: var(--text-muted);">{result.duration_ms} ms</span>
+                  </div>
+                  <div class="text-xs mt-2" style="color: var(--text-muted);">{result.message}</div>
+                </div>
+              {/each}
+            </div>
+          </div>
         {/if}
       </div>
     </td>

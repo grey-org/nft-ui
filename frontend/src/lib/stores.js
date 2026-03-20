@@ -4,6 +4,7 @@ import {
   addPort,
   deletePort,
   fetchForwardingRules,
+  testForwardingTarget as apiTestForwardingTarget,
   addForwardingRule as apiAddForwarding,
   editForwardingRule as apiEditForwarding,
   deleteForwardingRule as apiDeleteForwarding,
@@ -159,6 +160,46 @@ export async function loadForwardingRules() {
     errorNotify(`Failed to load forwarding rules: ${e.message}`);
   } finally {
     forwardingLoading.set(false);
+  }
+}
+
+function buildProbeSummary(result) {
+  const parts = (result.results || []).map((entry) => {
+    const label = entry.protocol?.toUpperCase() || 'UNKNOWN';
+    switch (entry.status) {
+      case 'reachable':
+        return `${label} reachable`;
+      case 'unreachable':
+        return `${label} unreachable`;
+      default:
+        return `${label} inconclusive`;
+    }
+  });
+
+  return `Connectivity test ${result.dst_ip}:${result.dst_port} - ${parts.join(', ')}`;
+}
+
+export async function testForwardingTarget(dstIP, dstPort, protocol, timeoutMs = 1500) {
+  try {
+    const result = await apiTestForwardingTarget(dstIP, dstPort, protocol, timeoutMs);
+    const message = buildProbeSummary(result);
+
+    switch (result.overall_status) {
+      case 'reachable':
+        success(message);
+        break;
+      case 'unreachable':
+        errorNotify(message);
+        break;
+      default:
+        warning(message);
+        break;
+    }
+
+    return result;
+  } catch (e) {
+    errorNotify(`Failed to test connectivity: ${e.message}`);
+    throw e;
   }
 }
 

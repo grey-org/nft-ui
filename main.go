@@ -94,6 +94,7 @@ func main() {
 
 	// Forwarding management endpoints
 	api.GET("/forwarding", handler.ListForwarding)
+	api.GET("/forwarding/test", handler.TestForwardingConnectivity)
 	api.POST("/forwarding", handler.AddForwarding)
 	api.PUT("/forwarding/:id", handler.EditForwarding)
 	api.DELETE("/forwarding/:id", handler.DeleteForwarding)

@@ -73,6 +73,17 @@ export async function fetchForwardingRules() {
   return request('/forwarding');
 }
 
+export async function testForwardingTarget(dstIP, dstPort, protocol, timeoutMs = 1500) {
+  const params = new URLSearchParams({
+    dst_ip: dstIP,
+    dst_port: String(dstPort),
+    protocol,
+    timeout_ms: String(timeoutMs),
+  });
+
+  return request(`/forwarding/test?${params.toString()}`);
+}
+
 export async function addForwardingRule(srcPort, dstIP, dstPort, protocol, comment, limitMbps, mssMode, sourceNATMode, snatAddress) {
   return request('/forwarding', {
     method: 'POST',

@@ -205,6 +205,26 @@ type ForwardingResponse struct {
 	ReadOnly bool             `json:"read_only"`
 }
 
+// ForwardingProbeResult describes the outcome of a connectivity check.
+type ForwardingProbeResult struct {
+	Protocol   string `json:"protocol"`
+	Status     string `json:"status"`
+	Reachable  bool   `json:"reachable"`
+	Message    string `json:"message"`
+	DurationMs int64  `json:"duration_ms"`
+}
+
+// ForwardingProbeResponse is the API response for forwarding connectivity tests.
+type ForwardingProbeResponse struct {
+	Success           bool                    `json:"success"`
+	DstIP             string                  `json:"dst_ip"`
+	DstPort           int                     `json:"dst_port"`
+	RequestedProtocol string                  `json:"requested_protocol"`
+	OverallStatus     string                  `json:"overall_status"`
+	TestedAt          string                  `json:"tested_at"`
+	Results           []ForwardingProbeResult `json:"results"`
+}
+
 // DisabledForwardsFile represents the JSON structure for storing disabled forwarding rules
 type DisabledForwardsFile struct {
 	Rules []ForwardingRule `json:"rules"`

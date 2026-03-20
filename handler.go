@@ -365,6 +365,65 @@ func (h *Handler) ListForwarding(c echo.Context) error {
 	})
 }
 
+// TestForwardingConnectivity handles GET /api/v1/forwarding/test
+func (h *Handler) TestForwardingConnectivity(c echo.Context) error {
+	dstIP := c.QueryParam("dst_ip")
+	if !isValidIPv4(dstIP) {
+		return c.JSON(http.StatusBadRequest, APIResponse{
+			Success: false,
+			Error:   "Destination IP must be a valid IPv4 address",
+		})
+	}
+
+	dstPort, err := strconv.Atoi(c.QueryParam("dst_port"))
+	if err != nil || dstPort < 1 || dstPort > 65535 {
+		return c.JSON(http.StatusBadRequest, APIResponse{
+			Success: false,
+			Error:   "Destination port must be between 1 and 65535",
+		})
+	}
+
+	protocol := c.QueryParam("protocol")
+	if protocol != "tcp" && protocol != "udp" && protocol != "both" {
+		return c.JSON(http.StatusBadRequest, APIResponse{
+			Success: false,
+			Error:   "Protocol must be 'tcp', 'udp', or 'both'",
+		})
+	}
+
+	timeout := defaultForwardingProbeTimeout
+	if timeoutMs := c.QueryParam("timeout_ms"); timeoutMs != "" {
+		parsedTimeout, err := strconv.Atoi(timeoutMs)
+		if err != nil || parsedTimeout < 100 || parsedTimeout > int(maxForwardingProbeTimeout/time.Millisecond) {
+			return c.JSON(http.StatusBadRequest, APIResponse{
+				Success: false,
+				Error:   "Timeout must be between 100 and 5000 milliseconds",
+			})
+		}
+		timeout = time.Duration(parsedTimeout) * time.Millisecond
+	}
+
+	results, overallStatus, err := testForwardingTarget(dstIP, dstPort, protocol, timeout)
+	if err != nil {
+		h.logger.Printf("Error testing forwarding target %s:%d (%s): %v", dstIP, dstPort, protocol, err)
+		return c.JSON(http.StatusInternalServerError, APIResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+	}
+
+	h.logger.Printf("Forwarding connectivity test: %s:%d (%s) -> %s", dstIP, dstPort, protocol, overallStatus)
+	return c.JSON(http.StatusOK, ForwardingProbeResponse{
+		Success:           true,
+		DstIP:             dstIP,
+		DstPort:           dstPort,
+		RequestedProtocol: protocol,
+		OverallStatus:     overallStatus,
+		TestedAt:          time.Now().Format(time.RFC3339),
+		Results:           results,
+	})
+}
+
 // AddForwarding handles POST /api/v1/forwarding
 func (h *Handler) AddForwarding(c echo.Context) error {
 	var req AddForwardingRequest
