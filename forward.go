@@ -19,11 +19,16 @@ import (
 // ForwardingComment is the prefix used to identify forwarding rules managed by nft-ui
 const ForwardingComment = "nft-ui fwd"
 
+const forwardBypassRestoreComment = "nft-ui fwd bypass restore"
+
 // ForwardingManager handles port forwarding (DNAT + MASQUERADE) operations
 type ForwardingManager struct {
-	mu                  sync.Mutex
-	binary              string
-	disabledForwardsPath string
+	mu                    sync.Mutex
+	binary                string
+	ipBinary              string
+	forwardBypassMark     uint32
+	forwardBypassPriority int
+	disabledForwardsPath  string
 }
 
 // NewForwardingManager creates a new ForwardingManager
@@ -33,8 +38,11 @@ func NewForwardingManager(cfg *Config) *ForwardingManager {
 		path = "/var/lib/nft-ui/disabled-forwards.json"
 	}
 	return &ForwardingManager{
-		binary:              cfg.NFTBinary,
-		disabledForwardsPath: path,
+		binary:                cfg.NFTBinary,
+		ipBinary:              cfg.IPBinary,
+		forwardBypassMark:     cfg.ForwardBypassMark,
+		forwardBypassPriority: cfg.ForwardBypassPriority,
+		disabledForwardsPath:  path,
 	}
 }
 
@@ -49,6 +57,27 @@ func (m *ForwardingManager) execNFT(args ...string) ([]byte, error) {
 		return nil, fmt.Errorf("nft %s: %w (output: %s)", strings.Join(args, " "), err, string(output))
 	}
 	return output, nil
+}
+
+// execIP executes an ip command and returns the output
+func (m *ForwardingManager) execIP(args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, m.ipBinary, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("ip %s: %w (output: %s)", strings.Join(args, " "), err, string(output))
+	}
+	return output, nil
+}
+
+func (m *ForwardingManager) forwardBypassEnabled() bool {
+	return m.forwardBypassMark != 0
+}
+
+func (m *ForwardingManager) forwardBypassMarkValue() string {
+	return fmt.Sprintf("0x%x", m.forwardBypassMark)
 }
 
 // EnsureFilterForwardSetup ensures the filter table and forward chain exist,
@@ -159,6 +188,138 @@ func (m *ForwardingManager) EnsureNatSetup() error {
 		if _, err := m.execNFT("add", "chain", "ip", "nat", "output",
 			"{ type nat hook output priority -100 ; policy accept ; }"); err != nil {
 			return fmt.Errorf("failed to create output chain: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// EnsureForwardBypassSetup creates the fwmark infrastructure used to keep
+// forwarded flows on the main routing table when policy-routing TUNs are active.
+func (m *ForwardingManager) EnsureForwardBypassSetup() error {
+	if !m.forwardBypassEnabled() {
+		return nil
+	}
+
+	// Ensure mangle table exists
+	if _, err := m.execNFT("list", "table", "ip", "mangle"); err != nil {
+		if _, err := m.execNFT("add", "table", "ip", "mangle"); err != nil {
+			return fmt.Errorf("failed to create mangle table: %w", err)
+		}
+	}
+
+	// Mark forwarded packets before route lookup.
+	if _, err := m.execNFT("list", "chain", "ip", "mangle", "prerouting"); err != nil {
+		if _, err := m.execNFT("add", "chain", "ip", "mangle", "prerouting",
+			"{ type filter hook prerouting priority mangle ; policy accept ; }"); err != nil {
+			return fmt.Errorf("failed to create mangle prerouting chain: %w", err)
+		}
+	}
+
+	// Mark locally-originated connections that hit the output DNAT path.
+	if _, err := m.execNFT("list", "chain", "ip", "mangle", "output"); err != nil {
+		if _, err := m.execNFT("add", "chain", "ip", "mangle", "output",
+			"{ type route hook output priority mangle ; policy accept ; }"); err != nil {
+			return fmt.Errorf("failed to create mangle output chain: %w", err)
+		}
+	}
+
+	if err := m.ensureForwardBypassRestoreRule(); err != nil {
+		return err
+	}
+
+	if err := m.ensureForwardBypassIPRule(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *ForwardingManager) ensureForwardBypassRestoreRule() error {
+	output, err := m.execNFT("-j", "-a", "list", "chain", "ip", "mangle", "prerouting")
+	if err == nil {
+		var ruleset NFTRuleset
+		if err := json.Unmarshal(output, &ruleset); err == nil {
+			for _, obj := range ruleset.NFTables {
+				if obj.Rule == nil || obj.Rule.Chain != "prerouting" {
+					continue
+				}
+				if obj.Rule.Comment == forwardBypassRestoreComment {
+					return nil
+				}
+			}
+		}
+	}
+
+	if _, err := m.execNFT("insert", "rule", "ip", "mangle", "prerouting",
+		"ct", "mark", m.forwardBypassMarkValue(),
+		"meta", "mark", "set", m.forwardBypassMarkValue(),
+		"comment", fmt.Sprintf(`"%s"`, forwardBypassRestoreComment)); err != nil {
+		return fmt.Errorf("failed to add bypass restore rule: %w", err)
+	}
+
+	return nil
+}
+
+func (m *ForwardingManager) ensureForwardBypassIPRule() error {
+	output, err := m.execIP("-4", "rule", "show")
+	if err == nil {
+		expectedRule := fmt.Sprintf("%d: from all fwmark %s lookup main",
+			m.forwardBypassPriority, strings.ToLower(m.forwardBypassMarkValue()))
+		if strings.Contains(strings.ToLower(string(output)), expectedRule) {
+			return nil
+		}
+	}
+
+	if _, err := m.execIP("-4", "rule", "add",
+		"priority", strconv.Itoa(m.forwardBypassPriority),
+		"fwmark", m.forwardBypassMarkValue(),
+		"lookup", "main"); err != nil {
+		if strings.Contains(err.Error(), "File exists") {
+			return nil
+		}
+		return fmt.Errorf("failed to add bypass ip rule: %w", err)
+	}
+
+	return nil
+}
+
+// SyncForwardBypassRules backfills bypass-mark rules for already-existing managed forwards.
+func (m *ForwardingManager) SyncForwardBypassRules() error {
+	if !m.forwardBypassEnabled() {
+		return nil
+	}
+
+	preOutput, err := m.execNFT("-j", "-a", "list", "chain", "ip", "nat", "prerouting")
+	if err != nil {
+		return nil
+	}
+
+	postOutput, err := m.execNFT("-j", "-a", "list", "chain", "ip", "nat", "postrouting")
+	if err != nil {
+		return nil
+	}
+
+	rules, err := m.parseForwardingRules(preOutput, postOutput)
+	if err != nil {
+		return err
+	}
+
+	for _, rule := range rules {
+		if !rule.Managed || !rule.Enabled {
+			continue
+		}
+
+		fullComment := fmt.Sprintf("%s %d", ForwardingComment, rule.SrcPort)
+		if rule.Comment != "" {
+			fullComment = fmt.Sprintf("%s %s", fullComment, rule.Comment)
+		}
+
+		if err := m.ensureRouteMarkRule("prerouting", rule.SrcPort, rule.Protocol, fullComment); err != nil {
+			return err
+		}
+		if err := m.ensureRouteMarkRule("output", rule.SrcPort, rule.Protocol, fullComment); err != nil {
+			return err
 		}
 	}
 
@@ -520,12 +681,20 @@ func (m *ForwardingManager) AddForwardingRule(srcPort int, dstIP string, dstPort
 		return fmt.Errorf("failed to add output DNAT rule: %w", err)
 	}
 
+	if err := m.addRouteMarkRules(srcPort, protocol, fullComment); err != nil {
+		m.deleteDNATRuleBySrcPort(srcPort)
+		m.deleteMasqueradeRuleBySrcPort(srcPort)
+		m.deleteOutputDNATRuleBySrcPort(srcPort)
+		return fmt.Errorf("failed to add bypass mark rules: %w", err)
+	}
+
 	// Add bandwidth limit rules in filter forward chain (if limit > 0)
 	if err := m.addForwardLimitRules(dstIP, dstPort, protocol, fullComment, limitMbps); err != nil {
 		// Rollback: delete previous rules
 		m.deleteDNATRuleBySrcPort(srcPort)
 		m.deleteMasqueradeRuleBySrcPort(srcPort)
 		m.deleteOutputDNATRuleBySrcPort(srcPort)
+		m.deleteRouteMarkRules(srcPort)
 		return fmt.Errorf("failed to add forward limit rules: %w", err)
 	}
 
@@ -535,6 +704,7 @@ func (m *ForwardingManager) AddForwardingRule(srcPort int, dstIP string, dstPort
 		m.deleteDNATRuleBySrcPort(srcPort)
 		m.deleteMasqueradeRuleBySrcPort(srcPort)
 		m.deleteOutputDNATRuleBySrcPort(srcPort)
+		m.deleteRouteMarkRules(srcPort)
 		m.deleteForwardLimitRules(srcPort)
 		return fmt.Errorf("failed to add MSS clamp rule: %w", err)
 	}
@@ -644,6 +814,102 @@ func (m *ForwardingManager) addOutputDNATRule(srcPort int, dstIP string, dstPort
 	return err
 }
 
+// addRouteMarkRules tags forwarding traffic so policy routing can keep it on the main table.
+func (m *ForwardingManager) addRouteMarkRules(srcPort int, protocol string, comment string) error {
+	if !m.forwardBypassEnabled() {
+		return nil
+	}
+
+	if err := m.EnsureForwardBypassSetup(); err != nil {
+		return err
+	}
+
+	if err := m.addRouteMarkRule("prerouting", srcPort, protocol, comment); err != nil {
+		return err
+	}
+
+	if err := m.addRouteMarkRule("output", srcPort, protocol, comment); err != nil {
+		m.deleteRouteMarkRules(srcPort)
+		return err
+	}
+
+	return nil
+}
+
+func (m *ForwardingManager) ensureRouteMarkRule(chain string, srcPort int, protocol string, comment string) error {
+	exists, err := m.routeMarkRuleExists(chain, srcPort)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+
+	return m.addRouteMarkRule(chain, srcPort, protocol, comment)
+}
+
+func (m *ForwardingManager) routeMarkRuleExists(chain string, srcPort int) (bool, error) {
+	output, err := m.execNFT("-j", "-a", "list", "chain", "ip", "mangle", chain)
+	if err != nil {
+		return false, nil
+	}
+
+	var ruleset NFTRuleset
+	if err := json.Unmarshal(output, &ruleset); err != nil {
+		return false, err
+	}
+
+	commentPrefix := fmt.Sprintf("%s %d", ForwardingComment, srcPort)
+	for _, obj := range ruleset.NFTables {
+		if obj.Rule == nil || obj.Rule.Chain != chain {
+			continue
+		}
+		if strings.HasPrefix(obj.Rule.Comment, commentPrefix) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func (m *ForwardingManager) addRouteMarkRule(chain string, srcPort int, protocol string, comment string) error {
+	var args []string
+
+	switch protocol {
+	case "tcp":
+		args = []string{
+			"add", "rule", "ip", "mangle", chain,
+			"tcp", "dport", strconv.Itoa(srcPort),
+			"meta", "mark", "set", m.forwardBypassMarkValue(),
+			"ct", "mark", "set", m.forwardBypassMarkValue(),
+			"comment", fmt.Sprintf(`"%s"`, comment),
+		}
+	case "udp":
+		args = []string{
+			"add", "rule", "ip", "mangle", chain,
+			"udp", "dport", strconv.Itoa(srcPort),
+			"meta", "mark", "set", m.forwardBypassMarkValue(),
+			"ct", "mark", "set", m.forwardBypassMarkValue(),
+			"comment", fmt.Sprintf(`"%s"`, comment),
+		}
+	default: // "both"
+		args = []string{
+			"add", "rule", "ip", "mangle", chain,
+			"meta", "l4proto", "{", "tcp,", "udp", "}",
+			"th", "dport", strconv.Itoa(srcPort),
+			"meta", "mark", "set", m.forwardBypassMarkValue(),
+			"ct", "mark", "set", m.forwardBypassMarkValue(),
+			"comment", fmt.Sprintf(`"%s"`, comment),
+		}
+	}
+
+	if _, err := m.execNFT(args...); err != nil {
+		return fmt.Errorf("failed to add %s bypass mark rule: %w", chain, err)
+	}
+
+	return nil
+}
+
 // addMSSClampRule adds bidirectional TCP MSS clamping rules in filter forward chain to prevent MTU-related stalls
 func (m *ForwardingManager) addMSSClampRule(dstIP string, comment string) error {
 	// Ensure filter table and forward chain exist
@@ -697,6 +963,35 @@ func (m *ForwardingManager) deleteMSSClampRules(srcPort int) error {
 			if _, ok := expr["mangle"]; ok {
 				m.execNFT("delete", "rule", "ip", "filter", "forward", "handle", strconv.FormatInt(obj.Rule.Handle, 10))
 				break
+			}
+		}
+	}
+
+	return nil
+}
+
+// deleteRouteMarkRules removes bypass fwmark rules for a forwarded source port.
+func (m *ForwardingManager) deleteRouteMarkRules(srcPort int) error {
+	commentPrefix := fmt.Sprintf("%s %d", ForwardingComment, srcPort)
+	chains := []string{"prerouting", "output"}
+
+	for _, chain := range chains {
+		output, err := m.execNFT("-j", "-a", "list", "chain", "ip", "mangle", chain)
+		if err != nil {
+			continue
+		}
+
+		var ruleset NFTRuleset
+		if err := json.Unmarshal(output, &ruleset); err != nil {
+			return err
+		}
+
+		for _, obj := range ruleset.NFTables {
+			if obj.Rule == nil || obj.Rule.Chain != chain {
+				continue
+			}
+			if strings.HasPrefix(obj.Rule.Comment, commentPrefix) {
+				m.execNFT("delete", "rule", "ip", "mangle", chain, "handle", strconv.FormatInt(obj.Rule.Handle, 10))
 			}
 		}
 	}
@@ -846,6 +1141,10 @@ func (m *ForwardingManager) DeleteForwardingRule(id string) error {
 		fmt.Printf("Warning: failed to delete output DNAT rule: %v\n", err)
 	}
 
+	if err := m.deleteRouteMarkRules(srcPort); err != nil {
+		fmt.Printf("Warning: failed to delete bypass mark rules: %v\n", err)
+	}
+
 	if err := m.deleteForwardLimitRules(srcPort); err != nil {
 		// Log warning but don't fail
 		fmt.Printf("Warning: failed to delete forward limit rules: %v\n", err)
@@ -904,6 +1203,7 @@ func (m *ForwardingManager) EditForwardingRule(id string, dstIP string, dstPort 
 	m.deleteDNATRuleBySrcPort(srcPort)
 	m.deleteMasqueradeRuleBySrcPort(srcPort)
 	m.deleteOutputDNATRuleBySrcPort(srcPort)
+	m.deleteRouteMarkRules(srcPort)
 	m.deleteForwardLimitRules(srcPort)
 	m.deleteMSSClampRules(srcPort)
 
@@ -929,10 +1229,18 @@ func (m *ForwardingManager) EditForwardingRule(id string, dstIP string, dstPort 
 		return fmt.Errorf("failed to add output DNAT rule: %w", err)
 	}
 
+	if err := m.addRouteMarkRules(srcPort, protocol, fullComment); err != nil {
+		m.deleteDNATRuleBySrcPort(srcPort)
+		m.deleteMasqueradeRuleBySrcPort(srcPort)
+		m.deleteOutputDNATRuleBySrcPort(srcPort)
+		return fmt.Errorf("failed to add bypass mark rules: %w", err)
+	}
+
 	if err := m.addForwardLimitRules(dstIP, dstPort, protocol, fullComment, limitMbps); err != nil {
 		m.deleteDNATRuleBySrcPort(srcPort)
 		m.deleteMasqueradeRuleBySrcPort(srcPort)
 		m.deleteOutputDNATRuleBySrcPort(srcPort)
+		m.deleteRouteMarkRules(srcPort)
 		return fmt.Errorf("failed to add forward limit rules: %w", err)
 	}
 
@@ -940,6 +1248,7 @@ func (m *ForwardingManager) EditForwardingRule(id string, dstIP string, dstPort 
 		m.deleteDNATRuleBySrcPort(srcPort)
 		m.deleteMasqueradeRuleBySrcPort(srcPort)
 		m.deleteOutputDNATRuleBySrcPort(srcPort)
+		m.deleteRouteMarkRules(srcPort)
 		m.deleteForwardLimitRules(srcPort)
 		return fmt.Errorf("failed to add MSS clamp rule: %w", err)
 	}
@@ -1004,10 +1313,18 @@ func (m *ForwardingManager) EnableForwardingRule(id string) error {
 		return fmt.Errorf("failed to add output DNAT rule: %w", err)
 	}
 
+	if err := m.addRouteMarkRules(rule.SrcPort, rule.Protocol, fullComment); err != nil {
+		m.deleteDNATRuleBySrcPort(rule.SrcPort)
+		m.deleteMasqueradeRuleBySrcPort(rule.SrcPort)
+		m.deleteOutputDNATRuleBySrcPort(rule.SrcPort)
+		return fmt.Errorf("failed to add bypass mark rules: %w", err)
+	}
+
 	if err := m.addForwardLimitRules(rule.DstIP, rule.DstPort, rule.Protocol, fullComment, rule.LimitMbps); err != nil {
 		m.deleteDNATRuleBySrcPort(rule.SrcPort)
 		m.deleteMasqueradeRuleBySrcPort(rule.SrcPort)
 		m.deleteOutputDNATRuleBySrcPort(rule.SrcPort)
+		m.deleteRouteMarkRules(rule.SrcPort)
 		return fmt.Errorf("failed to add forward limit rules: %w", err)
 	}
 
@@ -1015,6 +1332,7 @@ func (m *ForwardingManager) EnableForwardingRule(id string) error {
 		m.deleteDNATRuleBySrcPort(rule.SrcPort)
 		m.deleteMasqueradeRuleBySrcPort(rule.SrcPort)
 		m.deleteOutputDNATRuleBySrcPort(rule.SrcPort)
+		m.deleteRouteMarkRules(rule.SrcPort)
 		m.deleteForwardLimitRules(rule.SrcPort)
 		return fmt.Errorf("failed to add MSS clamp rule: %w", err)
 	}
@@ -1059,10 +1377,11 @@ func (m *ForwardingManager) DisableForwardingRule(id string) error {
 	if err := m.deleteDNATRuleBySrcPort(srcPort); err != nil {
 		return fmt.Errorf("failed to delete DNAT rule: %w", err)
 	}
-	m.deleteMasqueradeRuleBySrcPort(srcPort)   // Ignore errors
-	m.deleteOutputDNATRuleBySrcPort(srcPort)   // Ignore errors
-	m.deleteForwardLimitRules(srcPort)         // Ignore errors
-	m.deleteMSSClampRules(srcPort)             // Ignore errors
+	m.deleteMasqueradeRuleBySrcPort(srcPort) // Ignore errors
+	m.deleteOutputDNATRuleBySrcPort(srcPort) // Ignore errors
+	m.deleteRouteMarkRules(srcPort)          // Ignore errors
+	m.deleteForwardLimitRules(srcPort)       // Ignore errors
+	m.deleteMSSClampRules(srcPort)           // Ignore errors
 
 	// Save to disabled rules
 	disabledRules, _ := m.loadDisabledRules()

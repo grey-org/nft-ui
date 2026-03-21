@@ -31,9 +31,12 @@ Environment=NFT_UI_LISTEN_ADDR=localhost:8080
 #Environment=NFT_UI_READ_ONLY=false
 #Environment=NFT_UI_REFRESH_INTERVAL=5
 #Environment=NFT_UI_NFT_BINARY=/usr/sbin/nft
+#Environment=NFT_UI_IP_BINARY=ip
 #Environment=NFT_UI_TABLE_FAMILY=inet
 #Environment=NFT_UI_TABLE_NAME=filter
 #Environment=NFT_UI_CHAIN_NAME=output
+#Environment=NFT_UI_FORWARD_BYPASS_MARK=256
+#Environment=NFT_UI_FORWARD_BYPASS_PRIORITY=8990
 #Environment=NFT_UI_TOKEN_SALT=your-secret-salt
 #Environment=NFT_UI_PUBLIC_QUERY=false
 

@@ -38,6 +38,13 @@ func main() {
 	// Initialize forwarding manager
 	fwdMgr := NewForwardingManager(cfg)
 
+	if err := fwdMgr.EnsureForwardBypassSetup(); err != nil {
+		logger.Printf("Warning: failed to initialize forwarding bypass setup: %v", err)
+	}
+	if err := fwdMgr.SyncForwardBypassRules(); err != nil {
+		logger.Printf("Warning: failed to synchronize forwarding bypass rules: %v", err)
+	}
+
 	// Wire up forwarding manager for forward chain quota support
 	nftMgr.SetForwardingManager(fwdMgr)
 
