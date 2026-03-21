@@ -184,9 +184,31 @@ Then simply run: `ssh nft-ui-tunnel`
 | `NFT_UI_READ_ONLY` | `false` | Disable write operations |
 | `NFT_UI_REFRESH_INTERVAL` | `5` | Auto-refresh interval (seconds) |
 | `NFT_UI_NFT_BINARY` | `/usr/sbin/nft` | Path to nft binary |
+| `NFT_UI_IP_BINARY` | `ip` | Path to iproute2 `ip` binary |
 | `NFT_UI_TABLE_FAMILY` | `inet` | nftables family |
 | `NFT_UI_TABLE_NAME` | `filter` | nftables table name |
 | `NFT_UI_CHAIN_NAME` | `output` | nftables chain name |
+| `NFT_UI_FORWARD_BYPASS_MARK` | `0` | Optional fwmark used to keep forwarded flows on the `main` route table |
+| `NFT_UI_FORWARD_BYPASS_PRIORITY` | `8990` | Priority for the generated `ip rule` when bypass is enabled |
+
+## sing-box / TUN Policy Routing
+
+If you run `sing-box` with `tun` + `auto_route`, DNAT-ed forwarding traffic can be captured by the TUN policy route and leave through `tun0` instead of your physical uplink. A common symptom is that forwarding speed collapses when the TUN is enabled.
+
+Enable the bypass mode to keep `nft-ui` managed port-forwards on the normal `main` routing table:
+
+```bash
+NFT_UI_FORWARD_BYPASS_MARK=256
+NFT_UI_FORWARD_BYPASS_PRIORITY=8990
+```
+
+When enabled, `nft-ui` will:
+- add `ip mangle` rules that mark managed forwarding flows
+- restore the mark for reply packets with conntrack
+- install `ip rule add priority 8990 fwmark 0x100 lookup main`
+- backfill bypass rules for already-existing managed forwards during startup
+
+Choose a mark/priority that do not conflict with your existing policy-routing rules.
 
 ## Systemd Service
 
@@ -216,8 +238,10 @@ sudo systemctl enable --now nft-ui
 
 **Runtime ruleset changes:**
 - nft-ui modifies active nftables rules directly via the `nft` command
+- When `NFT_UI_FORWARD_BYPASS_MARK` is enabled, nft-ui also adds a runtime `ip rule` for the fwmark bypass
 - Changes are applied **in-memory only** by default
 - **Does NOT automatically modify** `/etc/nftables.conf` or `/etc/nftables.d/` files
+- **Does NOT automatically persist** `ip rule` changes across reboots outside of nft-ui startup
 
 **Persistent files written by nft-ui:**
 - `/var/lib/nft-ui/ruleset.nft` - Backup of complete ruleset (saved after each modification)

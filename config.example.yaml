@@ -16,9 +16,17 @@ refresh_interval: 5
 
 # nftables settings
 nft_binary: "/usr/sbin/nft"
+ip_binary: "ip"
 table_family: "inet"
 table_name: "filter"
 chain_name: "output"
 
 # Path to save/restore nftables ruleset for persistence across restarts
 ruleset_path: "/var/lib/nft-ui/ruleset.nft"
+
+# Optional: bypass policy-routing TUNs (for example sing-box auto_route) for nft-ui port forwards.
+# When enabled, nft-ui marks forwarded packets and adds:
+#   ip rule add priority <forward_bypass_priority> fwmark <forward_bypass_mark> lookup main
+# Set to 0 to disable.
+forward_bypass_mark: 0
+forward_bypass_priority: 8990
