@@ -12,6 +12,8 @@ import {
   disableForwardingRule as apiDisableForwarding,
   exportBackup as apiExportBackup,
   importBackup as apiImportBackup,
+  fetchBypass as apiFetchBypass,
+  setBypass as apiSetBypass,
 } from './api.js';
 
 // Core state
@@ -271,6 +273,42 @@ export async function exportBackup() {
   } catch (e) {
     errorNotify(`Failed to export backup: ${e.message}`);
     throw e;
+  }
+}
+
+// Bypass state
+export const bypassConfig = writable({ enabled: false, mark: 1, priority: 8990 });
+export const bypassApplied = writable(false);
+export const bypassIPRule = writable('');
+export const bypassLoading = writable(false);
+
+export async function loadBypass() {
+  bypassLoading.set(true);
+  try {
+    const data = await apiFetchBypass();
+    bypassConfig.set(data.config);
+    bypassApplied.set(data.applied);
+    bypassIPRule.set(data.ip_rule || '');
+  } catch (e) {
+    errorNotify(`Failed to load bypass status: ${e.message}`);
+  } finally {
+    bypassLoading.set(false);
+  }
+}
+
+export async function updateBypass(enabled, mark, priority) {
+  bypassLoading.set(true);
+  try {
+    const data = await apiSetBypass(enabled, mark, priority);
+    bypassConfig.set(data.config);
+    bypassApplied.set(data.applied);
+    bypassIPRule.set(data.ip_rule || '');
+    success(enabled ? 'Forward bypass enabled' : 'Forward bypass disabled');
+  } catch (e) {
+    errorNotify(`Failed to update bypass: ${e.message}`);
+    throw e;
+  } finally {
+    bypassLoading.set(false);
   }
 }
 

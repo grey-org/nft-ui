@@ -11,21 +11,23 @@ import (
 
 // Handler holds dependencies for HTTP handlers
 type Handler struct {
-	nft      *NFTManager
-	fwd      *ForwardingManager
-	cfg      *Config
-	logger   *log.Logger
-	tokenGen *TokenGenerator
+	nft       *NFTManager
+	fwd       *ForwardingManager
+	cfg       *Config
+	logger    *log.Logger
+	tokenGen  *TokenGenerator
+	bypassMgr *BypassManager
 }
 
 // NewHandler creates a new Handler
-func NewHandler(nft *NFTManager, fwd *ForwardingManager, cfg *Config, logger *log.Logger, tokenGen *TokenGenerator) *Handler {
+func NewHandler(nft *NFTManager, fwd *ForwardingManager, cfg *Config, logger *log.Logger, tokenGen *TokenGenerator, bypassMgr *BypassManager) *Handler {
 	return &Handler{
-		nft:      nft,
-		fwd:      fwd,
-		cfg:      cfg,
-		logger:   logger,
-		tokenGen: tokenGen,
+		nft:       nft,
+		fwd:       fwd,
+		cfg:       cfg,
+		logger:    logger,
+		tokenGen:  tokenGen,
+		bypassMgr: bypassMgr,
 	}
 }
 
@@ -808,5 +810,95 @@ func (h *Handler) ImportBackup(c echo.Context) error {
 		"success": true,
 		"message": "Backup imported successfully",
 		"summary": summary,
+	})
+}
+
+// GetBypass handles GET /api/v1/bypass
+func (h *Handler) GetBypass(c echo.Context) error {
+	cfg, err := h.bypassMgr.Load()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, APIResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+	}
+
+	applied := h.bypassMgr.IPRulePresent(cfg)
+	ipRule := ""
+	if cfg.Mark != 0 {
+		ipRule = IPRuleString(cfg)
+	}
+
+	return c.JSON(http.StatusOK, BypassStatusResponse{
+		Success: true,
+		Config:  cfg,
+		Applied: applied,
+		IPRule:  ipRule,
+	})
+}
+
+// SetBypass handles POST /api/v1/bypass
+func (h *Handler) SetBypass(c echo.Context) error {
+	var req SetBypassRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, APIResponse{
+			Success: false,
+			Error:   "Invalid request body",
+		})
+	}
+
+	if req.Enabled && req.Mark == 0 {
+		req.Mark = 0x1
+	}
+	if req.Priority <= 0 {
+		req.Priority = 8990
+	}
+
+	cfg := BypassConfig{
+		Enabled:  req.Enabled,
+		Mark:     req.Mark,
+		Priority: req.Priority,
+	}
+
+	if req.Enabled {
+		if err := h.bypassMgr.Apply(cfg); err != nil {
+			h.logger.Printf("Error applying forward bypass: %v", err)
+			return c.JSON(http.StatusInternalServerError, APIResponse{
+				Success: false,
+				Error:   err.Error(),
+			})
+		}
+		h.logger.Printf("Forward bypass enabled (mark=0x%x priority=%d)", cfg.Mark, cfg.Priority)
+	} else {
+		// Load current config to know the old mark for teardown
+		oldCfg, err := h.bypassMgr.Load()
+		if err == nil && oldCfg.Enabled && oldCfg.Mark != 0 {
+			if err := h.bypassMgr.Teardown(oldCfg); err != nil {
+				h.logger.Printf("Warning: forward bypass teardown errors: %v", err)
+			}
+		}
+		// Keep mark/priority in saved state even when disabled (for re-enable UX)
+		cfg.Mark = req.Mark
+		if cfg.Mark == 0 {
+			cfg.Mark = 0x1
+		}
+		h.logger.Printf("Forward bypass disabled")
+	}
+
+	if err := h.bypassMgr.Save(cfg); err != nil {
+		h.logger.Printf("Warning: failed to save bypass state: %v", err)
+	}
+
+	applied := h.bypassMgr.IPRulePresent(cfg)
+	ipRule := ""
+	if cfg.Mark != 0 {
+		ipRule = IPRuleString(cfg)
+	}
+
+	return c.JSON(http.StatusOK, BypassStatusResponse{
+		Success: true,
+		Config:  cfg,
+		Applied: applied,
+		IPRule:  ipRule,
 	})
 }

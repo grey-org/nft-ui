@@ -269,3 +269,25 @@ type ImportSummary struct {
 	PortsAdded        int `json:"ports_added"`
 	PortsSkipped      int `json:"ports_skipped"`
 }
+
+// BypassConfig holds the persisted forward-bypass configuration
+type BypassConfig struct {
+	Enabled  bool   `json:"enabled"`
+	Mark     uint32 `json:"mark"`
+	Priority int    `json:"priority"`
+}
+
+// BypassStatusResponse is the API response for GET /api/v1/bypass
+type BypassStatusResponse struct {
+	Success  bool         `json:"success"`
+	Config   BypassConfig `json:"config"`
+	Applied  bool         `json:"applied"`  // ip rule is present in kernel
+	IPRule   string       `json:"ip_rule"`  // the ip rule string, for display
+}
+
+// SetBypassRequest is the request body for POST /api/v1/bypass
+type SetBypassRequest struct {
+	Enabled  bool   `json:"enabled"`
+	Mark     uint32 `json:"mark"`
+	Priority int    `json:"priority"`
+}

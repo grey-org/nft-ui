@@ -38,11 +38,15 @@ func main() {
 	// Initialize forwarding manager
 	fwdMgr := NewForwardingManager(cfg)
 
-	if err := fwdMgr.EnsureForwardBypassSetup(); err != nil {
-		logger.Printf("Warning: failed to initialize forwarding bypass setup: %v", err)
-	}
-	if err := fwdMgr.SyncForwardBypassRules(); err != nil {
-		logger.Printf("Warning: failed to synchronize forwarding bypass rules: %v", err)
+	// Initialize bypass manager and apply persisted state on startup
+	bypassMgr := NewBypassManager(cfg.BypassStatePath, fwdMgr)
+	if bypassCfg, err := bypassMgr.Load(); err != nil {
+		logger.Printf("Warning: failed to load bypass state: %v", err)
+	} else if bypassCfg.Enabled && bypassCfg.Mark != 0 {
+		logger.Printf("Applying persisted forward bypass (mark=0x%x priority=%d)", bypassCfg.Mark, bypassCfg.Priority)
+		if err := bypassMgr.Apply(bypassCfg); err != nil {
+			logger.Printf("Warning: failed to apply forward bypass: %v", err)
+		}
 	}
 
 	if err := fwdMgr.ReconcileManagedForwardingRules(); err != nil {
@@ -56,7 +60,7 @@ func main() {
 	}
 
 	// Initialize handler
-	handler := NewHandler(nftMgr, fwdMgr, cfg, logger, tokenGen)
+	handler := NewHandler(nftMgr, fwdMgr, cfg, logger, tokenGen, bypassMgr)
 
 	// Create Echo instance
 	e := echo.New()
@@ -108,6 +112,10 @@ func main() {
 	api.DELETE("/forwarding/:id", handler.DeleteForwarding)
 	api.POST("/forwarding/:id/enable", handler.EnableForwarding)
 	api.POST("/forwarding/:id/disable", handler.DisableForwarding)
+
+	// Bypass management endpoints
+	api.GET("/bypass", handler.GetBypass)
+	api.POST("/bypass", handler.SetBypass)
 
 	// Raw ruleset endpoint
 	api.GET("/raw-ruleset", handler.GetRawRuleset)

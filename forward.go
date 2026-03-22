@@ -1261,6 +1261,55 @@ func (m *ForwardingManager) deleteRouteMarkRules(srcPort int) error {
 	return nil
 }
 
+// deleteBypassRestoreRule removes the ct mark restore rule from ip mangle prerouting.
+func (m *ForwardingManager) deleteBypassRestoreRule() error {
+	output, err := m.execNFT("-j", "-a", "list", "chain", "ip", "mangle", "prerouting")
+	if err != nil {
+		return nil // chain doesn't exist, nothing to do
+	}
+	var ruleset NFTRuleset
+	if err := json.Unmarshal(output, &ruleset); err != nil {
+		return err
+	}
+	for _, obj := range ruleset.NFTables {
+		if obj.Rule == nil || obj.Rule.Chain != "prerouting" {
+			continue
+		}
+		if obj.Rule.Comment == forwardBypassRestoreComment {
+			_, err := m.execNFT("delete", "rule", "ip", "mangle", "prerouting",
+				"handle", strconv.FormatInt(obj.Rule.Handle, 10))
+			return err
+		}
+	}
+	return nil
+}
+
+// teardownAllRouteMarkRules removes all nft-ui fwd bypass mark rules from
+// ip mangle prerouting and output (for all src ports).
+func (m *ForwardingManager) teardownAllRouteMarkRules() error {
+	chains := []string{"prerouting", "output"}
+	for _, chain := range chains {
+		output, err := m.execNFT("-j", "-a", "list", "chain", "ip", "mangle", chain)
+		if err != nil {
+			continue
+		}
+		var ruleset NFTRuleset
+		if err := json.Unmarshal(output, &ruleset); err != nil {
+			continue
+		}
+		for _, obj := range ruleset.NFTables {
+			if obj.Rule == nil || obj.Rule.Chain != chain {
+				continue
+			}
+			if strings.HasPrefix(obj.Rule.Comment, ForwardingComment) {
+				m.execNFT("delete", "rule", "ip", "mangle", chain,
+					"handle", strconv.FormatInt(obj.Rule.Handle, 10))
+			}
+		}
+	}
+	return nil
+}
+
 // addForwardLimitRules adds bandwidth limit rules in filter forward chain (bidirectional)
 func (m *ForwardingManager) addForwardLimitRules(dstIP string, dstPort int, protocol string, comment string, limitMbps int) error {
 	if limitMbps <= 0 {

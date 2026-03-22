@@ -25,6 +25,7 @@ type Config struct {
 	RulesetPath           string `yaml:"ruleset_path"`
 	ForwardBypassMark     uint32 `yaml:"forward_bypass_mark"`
 	ForwardBypassPriority int    `yaml:"forward_bypass_priority"`
+	BypassStatePath       string `yaml:"bypass_state_path"`
 }
 
 // DefaultConfig returns the default configuration
@@ -46,6 +47,7 @@ func DefaultConfig() *Config {
 		RulesetPath:           "/var/lib/nft-ui/ruleset.nft",
 		ForwardBypassMark:     0,
 		ForwardBypassPriority: 8990,
+		BypassStatePath:       "/var/lib/nft-ui/bypass.json",
 	}
 }
 
@@ -124,6 +126,9 @@ func LoadConfig() (*Config, error) {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			cfg.ForwardBypassPriority = n
 		}
+	}
+	if v := os.Getenv("NFT_UI_BYPASS_STATE_PATH"); v != "" {
+		cfg.BypassStatePath = v
 	}
 
 	return cfg, nil

@@ -163,3 +163,15 @@ export async function importBackup(file) {
     body: JSON.stringify(data),
   });
 }
+
+// Bypass API
+export async function fetchBypass() {
+  return request('/bypass');
+}
+
+export async function setBypass(enabled, mark, priority) {
+  return request('/bypass', {
+    method: 'POST',
+    body: JSON.stringify({ enabled, mark, priority }),
+  });
+}
