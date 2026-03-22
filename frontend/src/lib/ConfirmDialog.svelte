@@ -32,19 +32,19 @@
   role="presentation"
 >
   <div
-    class="modal min-w-[350px] max-w-[90%]"
+    class="modal min-w-[340px] max-w-[90%]"
     onclick={(e) => e.stopPropagation()}
     role="dialog"
     aria-modal="true"
   >
-    <h2 class="text-xl font-semibold mb-5" style="color: var(--text);">{title}</h2>
-    <p class="mb-5 leading-relaxed" style="color: var(--text-muted);">{message}</p>
-    <div class="flex justify-end gap-3">
-      <button class="btn btn-secondary" onclick={handleCancel}>
-        {cancelText}
-      </button>
+    <div class="flex items-center gap-2 mb-4" style="border-bottom: 0.5px solid var(--border); padding-bottom: 10px;">
+      <span style="font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted);">{title}</span>
+    </div>
+    <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 16px; line-height: 1.6;">{message}</p>
+    <div class="flex justify-end gap-2">
+      <button class="btn btn-sm btn-secondary" onclick={handleCancel}>{cancelText}</button>
       <button
-        class="btn {danger ? 'btn-danger' : 'btn-primary'}"
+        class="btn btn-sm {danger ? 'btn-danger' : 'btn-primary'}"
         onclick={handleConfirm}
       >
         {confirmText}

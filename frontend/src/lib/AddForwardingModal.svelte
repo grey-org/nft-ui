@@ -24,37 +24,30 @@
 
   function validate() {
     const newErrors = {};
-
     const srcPortNum = parseInt(srcPort, 10);
     if (isNaN(srcPortNum) || srcPortNum < 1 || srcPortNum > 65535) {
-      newErrors.srcPort = 'Source port must be between 1 and 65535';
+      newErrors.srcPort = 'source port must be between 1 and 65535';
     }
-
     if (!isValidIPv4(dstIP)) {
-      newErrors.dstIP = 'Please enter a valid IPv4 address';
+      newErrors.dstIP = 'enter a valid IPv4 address';
     }
-
     const dstPortNum = parseInt(dstPort, 10);
     if (isNaN(dstPortNum) || dstPortNum < 1 || dstPortNum > 65535) {
-      newErrors.dstPort = 'Destination port must be between 1 and 65535';
+      newErrors.dstPort = 'destination port must be between 1 and 65535';
     }
-
     const limitNum = parseInt(limitMbps, 10);
     if (isNaN(limitNum) || limitNum < 0) {
-      newErrors.limitMbps = 'Limit must be 0 or positive (0 = no limit)';
+      newErrors.limitMbps = 'limit must be 0 or positive';
     }
-
     if (sourceNATMode === 'snat' && !isValidIPv4(snatAddress)) {
-      newErrors.snatAddress = 'Please enter a valid IPv4 SNAT address';
+      newErrors.snatAddress = 'enter a valid IPv4 SNAT address';
     }
-
     errors = newErrors;
     return Object.keys(newErrors).length === 0;
   }
 
   async function handleSubmit() {
     if (!validate()) return;
-
     submitting = true;
     try {
       await addForwardingRule(
@@ -77,102 +70,70 @@
   }
 
   function handleKeydown(e) {
-    if (e.key === 'Escape') {
-      onclose?.();
-    }
+    if (e.key === 'Escape') onclose?.();
   }
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div
-  class="modal-backdrop"
-  onclick={onclose}
-  role="presentation"
->
+<div class="modal-backdrop" onclick={onclose} role="presentation">
   <div
     class="modal w-full max-w-[420px] max-h-[90vh] overflow-y-auto"
     onclick={(e) => e.stopPropagation()}
     role="dialog"
     aria-modal="true"
   >
-    <div class="flex justify-between items-center mb-5">
-      <h3 class="text-lg font-semibold" style="color: var(--text);">Add Forwarding Rule</h3>
+    <div class="flex items-center justify-between mb-4" style="border-bottom: 0.5px solid var(--border); padding-bottom: 10px;">
+      <div class="flex items-center gap-2">
+        <span class="dot-teal"></span>
+        <span style="font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted);">Add Forwarding Rule</span>
+      </div>
       <button
-        class="bg-transparent border-none text-2xl cursor-pointer p-0 leading-none transition-colors"
-        style="color: var(--text-muted);"
+        style="background: transparent; border: none; font-size: 16px; line-height: 1; color: var(--text-muted); cursor: pointer; padding: 0;"
         onmouseover={(e) => e.currentTarget.style.color = 'var(--text)'}
         onmouseout={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
         onclick={onclose}
-      >
-        &times;
-      </button>
+      >×</button>
     </div>
 
     <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
       <div class="mb-4">
-        <label for="srcPort" class="label">
-          <span>Source Port</span>
-        </label>
+        <label for="srcPort" class="label">Source Port</label>
         <input
-          type="number"
-          id="srcPort"
-          class="input"
-          class:input-error={errors.srcPort}
-          bind:value={srcPort}
-          placeholder="e.g. 12103"
-          min="1"
-          max="65535"
+          type="number" id="srcPort" class="input" class:input-error={errors.srcPort}
+          bind:value={srcPort} placeholder="12103" min="1" max="65535"
         />
         {#if errors.srcPort}
-          <span class="text-xs mt-1 block" style="color: var(--danger);">{errors.srcPort}</span>
+          <span style="font-size: 10px; color: var(--danger); display: block; margin-top: 3px;">{errors.srcPort}</span>
         {/if}
-        <span class="text-xs mt-1 block" style="color: var(--text-muted);">The local port to forward from</span>
+        <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 3px;">the local port to forward from</span>
       </div>
 
       <div class="mb-4">
-        <label for="dstIP" class="label">
-          <span>Destination IP</span>
-        </label>
+        <label for="dstIP" class="label">Destination IP</label>
         <input
-          type="text"
-          id="dstIP"
-          class="input"
-          class:input-error={errors.dstIP}
-          bind:value={dstIP}
-          placeholder="e.g. 192.168.1.100"
+          type="text" id="dstIP" class="input" class:input-error={errors.dstIP}
+          bind:value={dstIP} placeholder="192.168.1.100"
         />
         {#if errors.dstIP}
-          <span class="text-xs mt-1 block" style="color: var(--danger);">{errors.dstIP}</span>
+          <span style="font-size: 10px; color: var(--danger); display: block; margin-top: 3px;">{errors.dstIP}</span>
         {/if}
-        <span class="text-xs mt-1 block" style="color: var(--text-muted);">The target IP address</span>
       </div>
 
       <div class="mb-4">
-        <label for="dstPort" class="label">
-          <span>Destination Port</span>
-        </label>
+        <label for="dstPort" class="label">Destination Port</label>
         <input
-          type="number"
-          id="dstPort"
-          class="input"
-          class:input-error={errors.dstPort}
-          bind:value={dstPort}
-          placeholder="e.g. 22"
-          min="1"
-          max="65535"
+          type="number" id="dstPort" class="input" class:input-error={errors.dstPort}
+          bind:value={dstPort} placeholder="22" min="1" max="65535"
         />
         {#if errors.dstPort}
-          <span class="text-xs mt-1 block" style="color: var(--danger);">{errors.dstPort}</span>
+          <span style="font-size: 10px; color: var(--danger); display: block; margin-top: 3px;">{errors.dstPort}</span>
         {/if}
-        <span class="text-xs mt-1 block" style="color: var(--text-muted);">The target port</span>
       </div>
 
       <div class="mb-4">
-        <label for="protocol" class="label">
-          <span>Protocol</span>
-        </label>
-        <select id="protocol" class="select" bind:value={protocol}>
+        <label for="protocol" class="label">Protocol</label>
+        <select id="protocol" class="select w-full" bind:value={protocol}>
           <option value="both">TCP + UDP</option>
           <option value="tcp">TCP only</option>
           <option value="udp">UDP only</option>
@@ -180,87 +141,59 @@
       </div>
 
       <div class="mb-4">
-        <label for="comment" class="label">
-          <span>Comment (optional)</span>
-        </label>
-        <input
-          type="text"
-          id="comment"
-          class="input"
-          bind:value={comment}
-          placeholder="e.g. SSH tunnel"
-          maxlength="100"
-        />
+        <label for="comment" class="label">Comment (optional)</label>
+        <input type="text" id="comment" class="input" bind:value={comment} placeholder="SSH tunnel" maxlength="100" />
       </div>
 
       <div class="mb-4">
-        <label for="sourceNATMode" class="label">
-          <span>Source NAT</span>
-        </label>
-        <select id="sourceNATMode" class="select" bind:value={sourceNATMode}>
+        <label for="sourceNATMode" class="label">Source NAT</label>
+        <select id="sourceNATMode" class="select w-full" bind:value={sourceNATMode}>
           <option value="masquerade">MASQUERADE (dynamic egress IP)</option>
           <option value="snat">Fixed SNAT (static egress IP)</option>
         </select>
-        <span class="text-xs mt-1 block" style="color: var(--text-muted);">Use SNAT when the server has a stable public egress IP.</span>
+        <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 3px;">use SNAT when the server has a stable public egress IP</span>
       </div>
 
       {#if sourceNATMode === 'snat'}
         <div class="mb-4">
-          <label for="snatAddress" class="label">
-            <span>SNAT Address</span>
-          </label>
+          <label for="snatAddress" class="label">SNAT Address</label>
           <input
-            type="text"
-            id="snatAddress"
-            class="input"
-            class:input-error={errors.snatAddress}
-            bind:value={snatAddress}
-            placeholder="e.g. 203.0.113.10"
+            type="text" id="snatAddress" class="input" class:input-error={errors.snatAddress}
+            bind:value={snatAddress} placeholder="203.0.113.10"
           />
           {#if errors.snatAddress}
-            <span class="text-xs mt-1 block" style="color: var(--danger);">{errors.snatAddress}</span>
+            <span style="font-size: 10px; color: var(--danger); display: block; margin-top: 3px;">{errors.snatAddress}</span>
           {/if}
-          <span class="text-xs mt-1 block" style="color: var(--text-muted);">The fixed public IPv4 address to use in <code>snat to ...</code>.</span>
+          <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 3px;">the fixed public IPv4 for <code>snat to …</code></span>
         </div>
       {/if}
 
       <div class="mb-4">
-        <label for="mssMode" class="label">
-          <span>TCP MSS Handling</span>
-        </label>
-        <select id="mssMode" class="select" bind:value={mssMode}>
+        <label for="mssMode" class="label">TCP MSS Handling</label>
+        <select id="mssMode" class="select w-full" bind:value={mssMode}>
           <option value="pmtu">Auto clamp to PMTU (recommended)</option>
-          <option value="fixed1452">Fixed MSS 1452 (legacy compatibility)</option>
+          <option value="fixed1452">Fixed MSS 1452 (legacy)</option>
           <option value="disabled">Disabled</option>
         </select>
-        <span class="text-xs mt-1 block" style="color: var(--text-muted);">Applies to TCP SYN/SYN-ACK only. PMTU mode maps to <code>tcp option maxseg size set rt mtu</code>.</span>
+        <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 3px;">PMTU → <code>tcp option maxseg size set rt mtu</code></span>
       </div>
 
-      <div class="mb-6">
-        <label for="limitMbps" class="label">
-          <span>Bandwidth Limit (Mbps)</span>
-        </label>
+      <div class="mb-5">
+        <label for="limitMbps" class="label">Bandwidth Limit (Mbps)</label>
         <input
-          type="number"
-          id="limitMbps"
-          class="input"
-          class:input-error={errors.limitMbps}
-          bind:value={limitMbps}
-          placeholder="0"
-          min="0"
+          type="number" id="limitMbps" class="input" class:input-error={errors.limitMbps}
+          bind:value={limitMbps} placeholder="0" min="0"
         />
         {#if errors.limitMbps}
-          <span class="text-xs mt-1 block" style="color: var(--danger);">{errors.limitMbps}</span>
+          <span style="font-size: 10px; color: var(--danger); display: block; margin-top: 3px;">{errors.limitMbps}</span>
         {/if}
-        <span class="text-xs mt-1 block" style="color: var(--text-muted);">0 = no limit, or set max Mbps (e.g. 10, 100)</span>
+        <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 3px;">0 = no limit</span>
       </div>
 
-      <div class="flex justify-end gap-3">
-        <button type="button" class="btn btn-secondary" onclick={onclose}>
-          Cancel
-        </button>
-        <button type="submit" class="btn btn-primary" disabled={submitting}>
-          {submitting ? 'Adding...' : 'Add Rule'}
+      <div class="flex justify-end gap-2">
+        <button type="button" class="btn btn-sm btn-secondary" onclick={onclose}>cancel</button>
+        <button type="submit" class="btn btn-sm btn-primary" disabled={submitting}>
+          {submitting ? 'adding…' : 'add rule'}
         </button>
       </div>
     </form>

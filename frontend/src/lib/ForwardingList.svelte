@@ -6,23 +6,24 @@
   let showAddModal = $state(false);
 </script>
 
-<section class="mt-8">
-  <div class="flex justify-between items-center mb-4">
-    <h2 class="text-lg font-semibold m-0" style="color: var(--text);">Port Forwarding</h2>
+<section class="mb-4">
+  <div class="flex justify-between items-center mb-2">
+    <div class="flex items-center gap-2">
+      <span class="dot-teal"></span>
+      <span style="font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted);">Port Forwarding</span>
+    </div>
     {#if !$readOnly}
-      <button class="btn btn-sm btn-primary" onclick={() => showAddModal = true}>
-        + Add Rule
-      </button>
+      <button class="btn btn-sm btn-primary" onclick={() => showAddModal = true}>+ add rule</button>
     {/if}
   </div>
 
   {#if $forwardingLoading}
-    <div class="text-center py-8" style="color: var(--text-muted);">Loading forwarding rules...</div>
+    <div style="font-size: 11px; color: var(--text-muted); padding: 12px 0;">loading…</div>
   {:else if $sortedForwardingRules.length === 0}
-    <div class="text-center py-8" style="color: var(--text-muted);">
-      <p>No forwarding rules configured</p>
+    <div style="font-size: 11px; color: var(--text-muted); padding: 12px 0;">
+      no forwarding rules configured
       {#if !$readOnly}
-        <p class="text-sm mt-2">Click "Add Rule" to create a new port forwarding rule</p>
+        <span style="color: var(--text-dim);"> — click "+ add rule" to create one</span>
       {/if}
     </div>
   {:else}

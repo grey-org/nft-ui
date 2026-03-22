@@ -34,41 +34,38 @@
   }
 </script>
 
-<section class="mt-8">
-  <div class="flex justify-between items-center mb-4">
-    <h2 class="text-lg font-semibold m-0" style="color: var(--text);">Allowed Inbound Ports</h2>
+<section class="mb-4">
+  <div class="flex justify-between items-center mb-2">
+    <div class="flex items-center gap-2">
+      <span class="dot-amber"></span>
+      <span style="font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted);">Allowed Inbound Ports</span>
+    </div>
     {#if !$readOnly}
-      <button class="btn btn-sm btn-primary" onclick={handleAddClick}>
-        + Add Port
-      </button>
+      <button class="btn btn-sm btn-primary" onclick={handleAddClick}>+ add port</button>
     {/if}
   </div>
 
   {#if $allowedPorts.length === 0}
-    <p class="text-center py-5" style="color: var(--text-muted);">No allowed port rules found</p>
+    <p style="font-size: 11px; color: var(--text-muted); padding: 12px 0;">no allowed port rules found</p>
   {:else}
-    <div class="flex flex-wrap gap-2">
+    <div class="flex flex-wrap gap-1.5">
       {#each sortedPorts as port}
         <div
-          class="badge flex items-center gap-2 relative transition-all"
-          class:badge-primary={port.managed}
-          style="padding: 0.5rem 0.75rem;"
+          class="flex items-center gap-1.5"
+          style="padding: 3px 7px; border: 0.5px solid var(--border); border-radius: 2px; background: transparent; font-size: 11px;"
         >
-          <span class="font-mono font-semibold" style="color: {port.managed ? 'var(--primary)' : 'var(--text)'};">{port.port}</span>
+          <span style="color: {port.managed ? 'var(--teal)' : 'var(--text)'};">{port.port}</span>
           {#if port.comment}
-            <span class="text-xs" style="color: var(--text-muted);">{port.comment}</span>
+            <span style="font-size: 10px; color: var(--text-muted);">{port.comment}</span>
           {/if}
           {#if port.managed && !$readOnly}
             <button
-              class="bg-transparent border-none text-lg p-0 px-1 cursor-pointer leading-none ml-1 transition-opacity"
-              style="color: var(--danger); opacity: 0.6;"
-              onmouseover={(e) => e.currentTarget.style.opacity = '1'}
-              onmouseout={(e) => e.currentTarget.style.opacity = '0.6'}
+              style="background: transparent; border: none; color: var(--text-dim); font-size: 14px; line-height: 1; padding: 0 1px; cursor: pointer;"
+              onmouseover={(e) => e.currentTarget.style.color = 'var(--danger)'}
+              onmouseout={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
               onclick={() => handleDeleteClick(port)}
               title="Delete port"
-            >
-              &times;
-            </button>
+            >×</button>
           {/if}
         </div>
       {/each}
@@ -83,7 +80,7 @@
 {#if portToDelete}
   <ConfirmDialog
     title="Delete Port"
-    message={`Are you sure you want to delete port ${portToDelete.port}?`}
+    message={`Delete port ${portToDelete.port}?`}
     confirmText="Delete"
     danger={true}
     onconfirm={confirmDelete}

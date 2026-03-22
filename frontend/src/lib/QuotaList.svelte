@@ -38,44 +38,42 @@
   }
 </script>
 
-<div class="card mb-6 overflow-hidden">
-  <!-- Toolbar -->
-  <div class="flex justify-between items-center p-4" style="border-bottom: 1px solid var(--border);">
-    <div class="flex items-center gap-3">
+<div class="card mb-4 overflow-hidden">
+  <!-- Pane header -->
+  <div class="flex justify-between items-center px-3 py-2" style="border-bottom: 0.5px solid var(--border);">
+    <div class="flex items-center gap-2">
+      <span class="dot-amber"></span>
+      <span style="font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted);">Quota Rules</span>
       {#if $hasSelection}
-        <span style="color: var(--text-muted); font-size: 0.875rem;">{$selectedCount} selected</span>
-        <button class="btn btn-sm btn-secondary" onclick={clearSelection}>
-          Clear Selection
-        </button>
+        <span style="font-size: 10px; color: var(--text-muted);">— {$selectedCount} selected</span>
+      {/if}
+    </div>
+    <div class="flex items-center gap-2">
+      {#if $hasSelection}
+        <button class="btn btn-sm btn-secondary" onclick={clearSelection}>clear</button>
         {#if !$readOnly}
           <button
             class="btn btn-sm btn-danger"
             onclick={() => (showBatchResetConfirm = true)}
             disabled={batchResetting}
           >
-            Reset Selected
+            reset selected
           </button>
         {/if}
       {:else}
-        <button class="btn btn-sm btn-secondary" onclick={selectAll}>
-          Select All
-        </button>
+        <button class="btn btn-sm btn-secondary" onclick={selectAll}>select all</button>
       {/if}
-    </div>
-    <div class="flex items-center gap-3">
       {#if !$readOnly}
-        <button class="btn btn-sm btn-primary" onclick={() => (showAddModal = true)}>
-          + Add Rule
-        </button>
+        <button class="btn btn-sm btn-primary" onclick={() => (showAddModal = true)}>+ add rule</button>
       {/if}
     </div>
   </div>
 
   <!-- Table -->
   {#if $loading && $sortedQuotas.length === 0}
-    <div class="py-10 text-center" style="color: var(--text-muted);">Loading...</div>
+    <div class="py-8 text-center" style="color: var(--text-muted); font-size: 11px;">loading…</div>
   {:else if $sortedQuotas.length === 0}
-    <div class="py-10 text-center" style="color: var(--text-muted);">No quota rules found</div>
+    <div class="py-8 text-center" style="color: var(--text-muted); font-size: 11px;">no quota rules found</div>
   {:else}
     <table class="data-table">
       <thead>
@@ -97,16 +95,14 @@
   {/if}
 </div>
 
-<!-- Add quota modal -->
 {#if showAddModal}
   <AddQuotaModal onclose={() => (showAddModal = false)} />
 {/if}
 
-<!-- Batch reset confirm dialog -->
 {#if showBatchResetConfirm}
   <ConfirmDialog
     title="Reset Quotas"
-    message={`Are you sure you want to reset ${$selectedCount} quota(s)? This will set their used traffic to 0.`}
+    message={`Reset ${$selectedCount} quota(s)? This sets used traffic to 0.`}
     confirmText="Reset"
     onconfirm={handleBatchReset}
     oncancel={() => (showBatchResetConfirm = false)}

@@ -6,7 +6,6 @@
   let visible = $state(false);
 
   onMount(() => {
-    // Trigger animation
     requestAnimationFrame(() => {
       visible = true;
     });
@@ -16,35 +15,32 @@
     visible = false;
     setTimeout(() => {
       onclose?.();
-    }, 200);
+    }, 150);
   }
 
   const colorMap = {
-    info: 'var(--primary)',
+    info:    'var(--teal)',
     success: 'var(--success)',
-    error: 'var(--danger)',
-    warning: 'var(--warning)',
+    error:   'var(--danger)',
+    warning: 'var(--amber)',
   };
 
-  let borderColor = $derived(colorMap[type] || colorMap.info);
+  let accentColor = $derived(colorMap[type] || colorMap.info);
 </script>
 
 <div
-  class="flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg min-w-[250px] max-w-[400px] transition-all duration-200"
+  class="flex items-center gap-3 min-w-[240px] max-w-[380px] transition-all duration-150"
   class:opacity-0={!visible}
-  class:translate-x-full={!visible}
+  class:translate-x-4={!visible}
   class:opacity-100={visible}
   class:translate-x-0={visible}
-  style="background-color: var(--surface); border: 1px solid var(--border); border-left: 4px solid {borderColor}; backdrop-filter: blur(8px);"
+  style="background-color: var(--surface); border: 0.5px solid var(--border); border-left: 2px solid {accentColor}; border-radius: 2px; padding: 8px 12px;"
 >
-  <span class="flex-1 text-sm" style="color: var(--text);">{message}</span>
+  <span style="flex: 1; font-size: 11px; color: var(--text);">{message}</span>
   <button
-    class="bg-transparent border-none text-xl p-0 cursor-pointer leading-none transition-opacity"
-    style="color: var(--text-muted); opacity: 0.7;"
-    onmouseover={(e) => e.currentTarget.style.opacity = '1'}
-    onmouseout={(e) => e.currentTarget.style.opacity = '0.7'}
+    style="background: transparent; border: none; font-size: 16px; line-height: 1; padding: 0; cursor: pointer; color: var(--text-muted);"
+    onmouseover={(e) => e.currentTarget.style.color = 'var(--text)'}
+    onmouseout={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
     onclick={handleClose}
-  >
-    &times;
-  </button>
+  >×</button>
 </div>

@@ -58,34 +58,25 @@
 
   function getProbeBadgeClass(status) {
     switch (status) {
-      case 'reachable':
-        return 'badge-success';
-      case 'unreachable':
-        return 'badge-danger';
-      default:
-        return 'badge-warning';
+      case 'reachable':   return 'badge-success';
+      case 'unreachable': return 'badge-danger';
+      default:            return 'badge-warning';
     }
   }
 
   function getProbeStatusLabel(status) {
     switch (status) {
-      case 'reachable':
-        return 'Reachable';
-      case 'unreachable':
-        return 'Unreachable';
-      default:
-        return 'Inconclusive';
+      case 'reachable':   return 'reachable';
+      case 'unreachable': return 'unreachable';
+      default:            return 'inconclusive';
     }
   }
 
   function getProbeAccent(status) {
     switch (status) {
-      case 'reachable':
-        return 'var(--success)';
-      case 'unreachable':
-        return 'var(--danger)';
-      default:
-        return 'var(--warning)';
+      case 'reachable':   return 'var(--success)';
+      case 'unreachable': return 'var(--danger)';
+      default:            return 'var(--amber)';
     }
   }
 </script>
@@ -108,168 +99,131 @@
     </div>
   </td>
   <td>
-    <div class="flex items-center gap-1.5">
-      <span class="font-semibold text-base font-mono" style="color: var(--text);">{rule.src_port}</span>
+    <div class="flex items-center gap-2">
+      <span style="font-size: 12px; color: var(--text);">{rule.src_port}</span>
       {#if !rule.managed}
-        <span class="text-[10px] px-1 py-0 rounded font-medium uppercase" style="background-color: var(--warning); color: #000;">ext</span>
+        <span style="font-size: 9px; padding: 1px 4px; border-radius: 2px; background-color: var(--amber); color: #000; text-transform: uppercase; letter-spacing: 0.06em;">ext</span>
       {/if}
     </div>
   </td>
   <td class="hidden md:table-cell">
-    <div class="flex items-center gap-0.5 font-mono">
-      <span style="color: var(--primary);">{rule.dst_ip}</span>
-      <span style="color: var(--text-muted);">:</span>
-      <span class="font-semibold" style="color: var(--text);">{rule.dst_port}</span>
+    <div style="font-size: 11px;">
+      <span style="color: var(--teal);">{rule.dst_ip}</span><span style="color: var(--text-dim);">:</span><span style="color: var(--text);">{rule.dst_port}</span>
     </div>
   </td>
   <td class="hidden md:table-cell">
-    <span class="badge text-xs px-2 py-0.5">{formatProtocol(rule.protocol)}</span>
+    <span class="badge" style="font-size: 9px;">{formatProtocol(rule.protocol)}</span>
   </td>
   <td class="w-12 text-center">
-    <span class="text-xl" style="color: var(--text-muted);">{expanded ? '−' : '+'}</span>
+    <span style="font-size: 12px; color: var(--text-dim);">{expanded ? '−' : '+'}</span>
   </td>
 </tr>
 
 {#if expanded}
   <tr class="detail-row">
     <td colspan="5">
-      <div class="px-4 pb-4 pt-2 animate-[slideDown_0.2s_ease]">
-        <!-- Mobile: show destination + protocol -->
+      <div style="padding: 10px 12px 12px; animation: slideDown 0.15s ease;">
+        <!-- Mobile: destination + protocol -->
         <div class="md:hidden mb-2">
-          <div class="flex gap-2 text-sm">
-            <span style="color: var(--text-muted);">Destination:</span>
-            <span class="font-mono" style="color: var(--text);">{rule.dst_ip}:{rule.dst_port}</span>
+          <div class="flex gap-2" style="font-size: 11px;">
+            <span style="color: var(--text-muted);">destination:</span>
+            <span style="color: var(--text);">{rule.dst_ip}:{rule.dst_port}</span>
           </div>
-          <div class="flex gap-2 text-sm mt-1">
-            <span style="color: var(--text-muted);">Protocol:</span>
+          <div class="flex gap-2 mt-1" style="font-size: 11px;">
+            <span style="color: var(--text-muted);">protocol:</span>
             <span style="color: var(--text);">{formatProtocol(rule.protocol)}</span>
           </div>
         </div>
 
         {#if rule.comment}
-          <div class="flex gap-2 mb-2 text-sm">
-            <span style="color: var(--text-muted);">Comment:</span>
+          <div class="flex gap-2 mb-1" style="font-size: 11px;">
+            <span style="color: var(--text-muted);">comment:</span>
             <span style="color: var(--text);">{rule.comment}</span>
           </div>
         {/if}
-        <div class="flex gap-2 mb-2 text-sm">
-          <span style="color: var(--text-muted);">ID:</span>
-          <span class="font-mono text-xs px-1.5 py-0.5 rounded" style="background-color: var(--bg); color: var(--text); border: 1px solid var(--border);">{rule.id}</span>
+        <div class="flex gap-2 mb-1" style="font-size: 11px;">
+          <span style="color: var(--text-muted);">id:</span>
+          <span style="font-size: 10px; padding: 1px 5px; border-radius: 2px; background-color: var(--bg); color: var(--text); border: 0.5px solid var(--border);">{rule.id}</span>
         </div>
-        <div class="flex gap-2 mb-2 text-sm">
-          <span style="color: var(--text-muted);">Status:</span>
-          <span style="color: var(--text);">{rule.enabled ? 'Enabled' : 'Disabled'}</span>
+        <div class="flex gap-2 mb-1" style="font-size: 11px;">
+          <span style="color: var(--text-muted);">status:</span>
+          <span style="color: var(--text);">{rule.enabled ? 'enabled' : 'disabled'}</span>
         </div>
-        <div class="flex gap-2 mb-2 text-sm">
-          <span style="color: var(--text-muted);">Managed:</span>
-          <span style="color: var(--text);">{rule.managed ? 'Yes (nft-ui)' : 'No (external)'}</span>
+        <div class="flex gap-2 mb-1" style="font-size: 11px;">
+          <span style="color: var(--text-muted);">managed:</span>
+          <span style="color: var(--text);">{rule.managed ? 'yes (nft-ui)' : 'no (external)'}</span>
         </div>
         {#if rule.limit_mbps > 0}
-          <div class="flex gap-2 mb-2 text-sm">
-            <span style="color: var(--text-muted);">Bandwidth Limit:</span>
+          <div class="flex gap-2 mb-1" style="font-size: 11px;">
+            <span style="color: var(--text-muted);">limit:</span>
             <span style="color: var(--text);">{rule.limit_mbps} Mbps</span>
           </div>
         {/if}
-        <div class="flex gap-2 mb-2 text-sm">
-          <span style="color: var(--text-muted);">Source NAT:</span>
+        <div class="flex gap-2 mb-1" style="font-size: 11px;">
+          <span style="color: var(--text-muted);">snat:</span>
           <span style="color: var(--text);">
             {#if rule.source_nat_mode === 'snat'}
-              Fixed SNAT{#if rule.snat_address} → {rule.snat_address}{/if}
+              snat{#if rule.snat_address} → {rule.snat_address}{/if}
             {:else}
-              MASQUERADE
+              masquerade
             {/if}
           </span>
         </div>
-
-        <div class="flex gap-2 mb-2 text-sm">
-          <span style="color: var(--text-muted);">TCP MSS:</span>
+        <div class="flex gap-2 mb-1" style="font-size: 11px;">
+          <span style="color: var(--text-muted);">tcp mss:</span>
           <span style="color: var(--text);">
-            {#if rule.mss_mode === 'pmtu'}
-              Auto PMTU clamp
-            {:else if rule.mss_mode === 'disabled'}
-              Disabled
-            {:else}
-              Fixed 1452
+            {#if rule.mss_mode === 'pmtu'}auto pmtu
+            {:else if rule.mss_mode === 'disabled'}disabled
+            {:else}fixed 1452
             {/if}
           </span>
         </div>
 
-        <div class="flex flex-wrap gap-2 mt-4">
+        <div class="flex flex-wrap gap-2 mt-3">
           <button
             class="btn btn-sm btn-secondary"
             onclick={handleTestConnection}
             disabled={testing || processing}
-          >
-            {testing ? 'Testing...' : `Test ${formatProtocol(rule.protocol)}`}
-          </button>
+          >{testing ? 'testing…' : `test ${formatProtocol(rule.protocol)}`}</button>
 
           {#if !$readOnly && rule.managed}
-            <button
-              class="btn btn-sm btn-secondary"
-              onclick={handleToggleEnabled}
-              disabled={processing || testing}
-            >
-              {rule.enabled ? 'Disable' : 'Enable'}
+            <button class="btn btn-sm btn-secondary" onclick={handleToggleEnabled} disabled={processing || testing}>
+              {rule.enabled ? 'disable' : 'enable'}
             </button>
-            <button
-              class="btn btn-sm btn-secondary"
-              onclick={() => showEditModal = true}
-              disabled={processing || testing}
-            >
-              Edit
-            </button>
-            <button
-              class="btn btn-sm btn-danger"
-              onclick={() => showDeleteConfirm = true}
-              disabled={processing || testing}
-            >
-              Delete
-            </button>
+            <button class="btn btn-sm btn-secondary" onclick={() => showEditModal = true} disabled={processing || testing}>edit</button>
+            <button class="btn btn-sm btn-danger" onclick={() => showDeleteConfirm = true} disabled={processing || testing}>delete</button>
           {:else if !$readOnly && !rule.managed && !rule.enabled}
-            <button
-              class="btn btn-sm btn-secondary"
-              onclick={handleToggleEnabled}
-              disabled={processing || testing}
-            >
-              Enable
-            </button>
-            <button
-              class="btn btn-sm btn-danger"
-              onclick={() => showDeleteConfirm = true}
-              disabled={processing || testing}
-            >
-              Delete
-            </button>
+            <button class="btn btn-sm btn-secondary" onclick={handleToggleEnabled} disabled={processing || testing}>enable</button>
+            <button class="btn btn-sm btn-danger" onclick={() => showDeleteConfirm = true} disabled={processing || testing}>delete</button>
           {/if}
         </div>
 
         {#if !$readOnly && !rule.managed && rule.enabled}
-          <div class="text-sm p-3 rounded-lg mt-3" style="background-color: var(--surface-hover); color: var(--text-muted); border: 1px solid var(--border);">
-            This rule was created externally and cannot be modified through nft-ui.
+          <div style="font-size: 11px; padding: 8px 10px; border-radius: 2px; margin-top: 8px; background-color: var(--surface-hover); color: var(--text-muted); border: 0.5px solid var(--border);">
+            this rule was created externally and cannot be modified through nft-ui.
           </div>
         {/if}
 
         {#if lastTest}
           <div
-            class="mt-4 p-3 rounded-lg"
-            style={`background-color: var(--surface-hover); border: 1px solid var(--border); border-left: 3px solid ${getProbeAccent(lastTest.overall_status)};`}
+            style="margin-top: 12px; padding: 10px; border-radius: 2px; background-color: var(--surface-hover); border: 0.5px solid var(--border); border-left: 2px solid {getProbeAccent(lastTest.overall_status)};"
           >
-            <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-              <div class="text-sm font-medium" style="color: var(--text);">Last connectivity test</div>
-              <div class="text-xs" style="color: var(--text-muted);">{formatTestTime(lastTest.tested_at)}</div>
+            <div class="flex items-center justify-between mb-2">
+              <span style="font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted);">connectivity test</span>
+              <span style="font-size: 10px; color: var(--text-dim);">{formatTestTime(lastTest.tested_at)}</span>
             </div>
 
-            <div class="flex flex-col gap-2">
+            <div class="flex flex-col gap-1.5">
               {#each lastTest.results as result}
-                <div class="rounded-md p-2" style="background-color: var(--surface); border: 1px solid var(--border);">
-                  <div class="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <div style="padding: 6px 8px; border-radius: 2px; background-color: var(--surface); border: 0.5px solid var(--border);">
+                  <div class="flex items-center justify-between gap-2" style="font-size: 11px;">
                     <div class="flex items-center gap-2">
-                      <span class={`badge ${getProbeBadgeClass(result.status)}`}>{result.protocol.toUpperCase()}</span>
+                      <span class="badge {getProbeBadgeClass(result.status)}">{result.protocol.toUpperCase()}</span>
                       <span style="color: var(--text);">{getProbeStatusLabel(result.status)}</span>
                     </div>
-                    <span class="font-mono text-xs" style="color: var(--text-muted);">{result.duration_ms} ms</span>
+                    <span style="font-size: 10px; color: var(--text-muted);">{result.duration_ms} ms</span>
                   </div>
-                  <div class="text-xs mt-2" style="color: var(--text-muted);">{result.message}</div>
+                  <div style="font-size: 10px; margin-top: 4px; color: var(--text-muted);">{result.message}</div>
                 </div>
               {/each}
             </div>
@@ -283,7 +237,7 @@
 {#if showDeleteConfirm}
   <ConfirmDialog
     title="Delete Forwarding Rule"
-    message={`Are you sure you want to delete the forwarding rule for port ${rule.src_port}?`}
+    message={`Delete forwarding rule for port ${rule.src_port}?`}
     confirmText="Delete"
     danger={true}
     onconfirm={handleDelete}
@@ -297,13 +251,7 @@
 
 <style>
   @keyframes slideDown {
-    from {
-      opacity: 0;
-      transform: translateY(-10px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
 </style>
