@@ -322,6 +322,7 @@ export async function importBackup(file) {
     // Reload all data
     await loadQuotas();
     await loadForwardingRules();
+    return result;
   } catch (e) {
     errorNotify(`Failed to import backup: ${e.message}`);
     throw e;

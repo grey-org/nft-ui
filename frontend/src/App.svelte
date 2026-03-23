@@ -10,14 +10,13 @@
     notifications,
     removeNotification,
     isEditingModal,
-    exportBackup,
-    importBackup,
   } from './lib/stores.js';
   import QuotaList from './lib/QuotaList.svelte';
   import PortList from './lib/PortList.svelte';
   import ForwardingList from './lib/ForwardingList.svelte';
   import RawRuleset from './lib/RawRuleset.svelte';
   import BypassPanel from './lib/BypassPanel.svelte';
+  import BackupPanel from './lib/BackupPanel.svelte';
   import Toast from './lib/Toast.svelte';
   import PublicQuery from './lib/PublicQuery.svelte';
 
@@ -67,23 +66,7 @@
     loadForwardingRules();
   }
 
-  let fileInput = $state();
 
-  function handleExport() {
-    exportBackup();
-  }
-
-  function handleImport() {
-    fileInput?.click();
-  }
-
-  async function handleFileSelect(event) {
-    const file = event.target.files?.[0];
-    if (file) {
-      await importBackup(file);
-      event.target.value = '';
-    }
-  }
 </script>
 
 {#if currentRoute === 'query'}
@@ -101,12 +84,9 @@
             {#if $readOnly}
               <span class="badge badge-warning">read-only</span>
             {/if}
-            <button class="btn btn-sm btn-secondary" onclick={handleExport} disabled={$loading}>export</button>
-            <button class="btn btn-sm btn-secondary" onclick={handleImport} disabled={$loading || $readOnly}>import</button>
             <button class="btn btn-sm btn-secondary" onclick={handleRefresh} disabled={$loading}>
               {$loading ? 'loading…' : 'refresh'}
             </button>
-            <input type="file" accept=".json" bind:this={fileInput} onchange={handleFileSelect} style="display: none;" />
           </div>
         </div>
       </div>
@@ -126,6 +106,7 @@
       <PortList />
       <ForwardingList />
       <BypassPanel />
+      <BackupPanel />
       <RawRuleset />
     </main>
 
