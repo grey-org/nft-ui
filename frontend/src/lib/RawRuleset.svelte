@@ -5,6 +5,7 @@
   let loading = $state(false);
   let error = $state(null);
   let expanded = $state(false);
+  let copied = $state(false);
 
   async function loadRawData() {
     loading = true;
@@ -24,6 +25,27 @@
     expanded = !expanded;
     if (expanded && !rawData && !loading) {
       loadRawData();
+    }
+  }
+
+  async function copyToClipboard() {
+    try {
+      await navigator.clipboard.writeText(rawData);
+      copied = true;
+      setTimeout(() => { copied = false; }, 2000);
+    } catch (err) {
+      // fallback for older browsers
+      const ta = document.createElement('textarea');
+      ta.value = rawData;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      copied = true;
+      setTimeout(() => { copied = false; }, 2000);
     }
   }
 </script>
@@ -46,6 +68,11 @@
           <button class="btn btn-sm btn-danger" onclick={loadRawData}>retry</button>
         </div>
       {:else if rawData}
+        <div class="flex justify-end mb-2">
+          <button class="btn btn-sm btn-secondary" onclick={copyToClipboard}>
+            {copied ? '✓ copied' : 'copy'}
+          </button>
+        </div>
         <pre class="code-block m-0 whitespace-pre-wrap break-words">{rawData}</pre>
       {:else}
         <div style="font-size: 11px; color: var(--text-muted); padding: 8px 0;">no data loaded</div>
