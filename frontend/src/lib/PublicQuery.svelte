@@ -375,11 +375,15 @@
     font-size: 13px;
     font-weight: 600;
     white-space: nowrap;
+    line-height: 1;
   }
 
   .status-dot {
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 700;
+    line-height: 1;
+    display: flex;
+    align-items: center;
   }
 
   .status-pill.status-ok {
