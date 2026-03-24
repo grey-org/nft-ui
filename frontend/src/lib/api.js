@@ -55,10 +55,10 @@ export async function deleteQuota(id) {
   });
 }
 
-export async function addPort(port) {
+export async function addPort(port, protocol = 'tcp') {
   return request('/ports', {
     method: 'POST',
-    body: JSON.stringify({ port }),
+    body: JSON.stringify({ port, protocol }),
   });
 }
 

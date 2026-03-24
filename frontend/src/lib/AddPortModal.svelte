@@ -10,6 +10,7 @@
   });
 
   let port = $state('');
+  let protocol = $state('tcp');
   let submitting = $state(false);
   let error = $state('');
 
@@ -27,7 +28,7 @@
     if (!validate()) return;
     submitting = true;
     try {
-      await addAllowedPort(parseInt(port, 10));
+      await addAllowedPort(parseInt(port, 10), protocol);
       onclose?.();
     } catch (e) {
       // Error already shown by store
@@ -70,8 +71,21 @@
           <span style="font-size: 10px; color: var(--danger); display: block; margin-top: 3px;">{error}</span>
         {/if}
         <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 5px;">
-          adds: <code>tcp dport &lt;port&gt; accept</code>
+          adds: <code>{protocol === 'both' ? 'meta l4proto { tcp, udp } th' : protocol} dport &lt;port&gt; accept</code>
         </span>
+      </div>
+
+      <div class="mb-5">
+        <label class="label">Protocol</label>
+        <div class="flex gap-2">
+          {#each ['tcp', 'udp', 'both'] as p}
+            <button
+              type="button"
+              style="padding: 3px 10px; font-size: 11px; border-radius: 2px; border: 0.5px solid {protocol === p ? 'var(--teal)' : 'var(--border)'}; background: {protocol === p ? 'color-mix(in srgb, var(--teal) 15%, transparent)' : 'transparent'}; color: {protocol === p ? 'var(--teal)' : 'var(--text-muted)'}; cursor: pointer; letter-spacing: 0.05em;"
+              onclick={() => protocol = p}
+            >{p}</button>
+          {/each}
+        </div>
       </div>
 
       <div class="flex justify-end gap-2">

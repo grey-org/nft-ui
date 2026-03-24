@@ -116,9 +116,9 @@ export const errorNotify = (msg) => addNotification(msg, 'error', 5000);
 export const warning = (msg) => addNotification(msg, 'warning');
 
 // Port management actions
-export async function addAllowedPort(port) {
+export async function addAllowedPort(port, protocol = 'tcp') {
   try {
-    await addPort(port);
+    await addPort(port, protocol);
     success('Port added successfully');
     await loadQuotas();
   } catch (e) {

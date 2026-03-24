@@ -229,15 +229,20 @@ func (h *Handler) AddPort(c echo.Context) error {
 		})
 	}
 
-	if err := h.nft.AddAllowedPort(req.Port); err != nil {
-		h.logger.Printf("Error adding allowed port %d: %v", req.Port, err)
+	protocol := req.Protocol
+	if protocol == "" {
+		protocol = "tcp"
+	}
+
+	if err := h.nft.AddAllowedPort(req.Port, protocol); err != nil {
+		h.logger.Printf("Error adding allowed port %d/%s: %v", req.Port, protocol, err)
 		return c.JSON(http.StatusInternalServerError, APIResponse{
 			Success: false,
 			Error:   err.Error(),
 		})
 	}
 
-	h.logger.Printf("Allowed port added: %d", req.Port)
+	h.logger.Printf("Allowed port added: %d/%s", req.Port, protocol)
 	h.saveRuleset()
 	return c.JSON(http.StatusCreated, APIResponse{
 		Success: true,
@@ -681,7 +686,7 @@ func (h *Handler) ExportBackup(c echo.Context) error {
 		CreatedAt:  time.Now().Format(time.RFC3339),
 		Quotas:     make([]BackupQuota, 0, len(quotas)),
 		Forwarding: make([]BackupForwarding, 0, len(forwardingRules)),
-		Ports:      make([]int, 0),
+		Ports:      make([]BackupPort, 0),
 	}
 
 	// Convert quotas
@@ -712,7 +717,11 @@ func (h *Handler) ExportBackup(c echo.Context) error {
 	// Convert allowed ports (only managed ones)
 	for _, p := range allowedPorts {
 		if p.Managed {
-			backup.Ports = append(backup.Ports, p.Port)
+			proto := p.Protocol
+			if proto == "" {
+				proto = "tcp"
+			}
+			backup.Ports = append(backup.Ports, BackupPort{Port: p.Port, Protocol: proto})
 		}
 	}
 
@@ -789,9 +798,13 @@ func (h *Handler) ImportBackup(c echo.Context) error {
 
 	// Import allowed ports
 	for _, port := range backup.Ports {
-		err := h.nft.AddAllowedPort(port)
+		proto := port.Protocol
+		if proto == "" {
+			proto = "tcp"
+		}
+		err := h.nft.AddAllowedPort(port.Port, proto)
 		if err != nil {
-			h.logger.Printf("Skipping port %d: %v", port, err)
+			h.logger.Printf("Skipping port %d/%s: %v", port.Port, proto, err)
 			summary.PortsSkipped++
 		} else {
 			summary.PortsAdded++

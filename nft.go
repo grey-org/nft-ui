@@ -608,7 +608,7 @@ func (n *NFTManager) parseAllowedPorts(data []byte) ([]AllowedPort, error) {
 	}
 
 	var ports []AllowedPort
-	seen := make(map[int]bool)
+	seen := make(map[string]bool)
 
 	for _, obj := range ruleset.NFTables {
 		if obj.Rule == nil {
@@ -645,14 +645,17 @@ func (n *NFTManager) parseAllowedPorts(data []byte) ([]AllowedPort, error) {
 			}
 
 			extractedPorts := n.extractDPorts(mm)
+			proto := n.extractDPortProtocol(mm, rule.Expr)
 			for _, port := range extractedPorts {
-				if !seen[port] {
-					seen[port] = true
+				key := fmt.Sprintf("%d:%s", port, proto)
+				if !seen[key] {
+					seen[key] = true
 					ports = append(ports, AllowedPort{
-						Port:    port,
-						Handle:  rule.Handle,
-						Managed: rule.Comment == ManagedComment,
-						Comment: rule.Comment,
+						Port:     port,
+						Protocol: proto,
+						Handle:   rule.Handle,
+						Managed:  rule.Comment == ManagedComment,
+						Comment:  rule.Comment,
 					})
 				}
 			}
@@ -717,6 +720,76 @@ func (n *NFTManager) extractDPorts(match map[string]interface{}) []int {
 	return ports
 }
 
+// extractDPortProtocol determines the protocol ("tcp", "udp", or "both") for a dport match expression.
+// It inspects payload.protocol; for "th" (transport header), it checks the full expr list for a
+// meta l4proto match to determine if both tcp and udp are covered.
+func (n *NFTManager) extractDPortProtocol(match map[string]interface{}, allExprs []map[string]interface{}) string {
+	left, ok := match["left"].(map[string]interface{})
+	if !ok {
+		return "tcp"
+	}
+	payload, ok := left["payload"].(map[string]interface{})
+	if !ok {
+		return "tcp"
+	}
+	proto, _ := payload["protocol"].(string)
+	switch proto {
+	case "tcp":
+		return "tcp"
+	case "udp":
+		return "udp"
+	case "th":
+		// Check for meta l4proto { tcp, udp } match in siblings
+		hasTCP, hasUDP := false, false
+		for _, expr := range allExprs {
+			mm, ok := expr["match"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			left2, ok := mm["left"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			meta, ok := left2["meta"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if meta["key"] != "l4proto" {
+				continue
+			}
+			// right can be a set of protocol numbers (6=tcp, 17=udp) or strings
+			right := mm["right"]
+			if rightMap, ok := right.(map[string]interface{}); ok {
+				if set, ok := rightMap["set"].([]interface{}); ok {
+					for _, v := range set {
+						switch val := v.(type) {
+						case float64:
+							if val == 6 {
+								hasTCP = true
+							} else if val == 17 {
+								hasUDP = true
+							}
+						case string:
+							if val == "tcp" {
+								hasTCP = true
+							} else if val == "udp" {
+								hasUDP = true
+							}
+						}
+					}
+				}
+			}
+		}
+		if hasTCP && hasUDP {
+			return "both"
+		} else if hasUDP {
+			return "udp"
+		}
+		return "tcp"
+	}
+	return "tcp"
+}
+
 // EnsureFilterInputSetup ensures the filter table and input chain exist
 func (n *NFTManager) EnsureFilterInputSetup() error {
 	// Check if table exists
@@ -741,27 +814,45 @@ func (n *NFTManager) EnsureFilterInputSetup() error {
 	return nil
 }
 
-// AddAllowedPort adds a new allowed inbound port rule
-func (n *NFTManager) AddAllowedPort(port int) error {
+// AddAllowedPort adds a new allowed inbound port rule.
+// protocol must be "tcp", "udp", or "both".
+func (n *NFTManager) AddAllowedPort(port int, protocol string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	// Validate port
 	if port < 1 || port > 65535 {
 		return fmt.Errorf("invalid port: %d", port)
 	}
+	if protocol == "" {
+		protocol = "tcp"
+	}
+	if protocol != "tcp" && protocol != "udp" && protocol != "both" {
+		return fmt.Errorf("invalid protocol %q: must be tcp, udp, or both", protocol)
+	}
 
-	// Ensure filter table and input chain exist
 	if err := n.EnsureFilterInputSetup(); err != nil {
 		return err
 	}
 
-	// nft insert rule inet filter input tcp dport <port> accept comment "nft-ui managed"
-	args := []string{
-		"insert", "rule", n.tableFamily, n.tableName, "input",
-		"tcp", "dport", strconv.Itoa(port),
-		"accept",
-		"comment", fmt.Sprintf(`"%s"`, ManagedComment),
+	var args []string
+	switch protocol {
+	case "both":
+		// meta l4proto { tcp, udp } th dport <port> accept
+		args = []string{
+			"insert", "rule", n.tableFamily, n.tableName, "input",
+			"meta", "l4proto", "{", "tcp,", "udp", "}",
+			"th", "dport", strconv.Itoa(port),
+			"accept",
+			"comment", fmt.Sprintf(`"%s"`, ManagedComment),
+		}
+	default:
+		// tcp dport <port> accept  OR  udp dport <port> accept
+		args = []string{
+			"insert", "rule", n.tableFamily, n.tableName, "input",
+			protocol, "dport", strconv.Itoa(port),
+			"accept",
+			"comment", fmt.Sprintf(`"%s"`, ManagedComment),
+		}
 	}
 
 	_, err := n.execNFT(args...)

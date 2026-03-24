@@ -37,7 +37,6 @@
     if (currentRoute === 'admin') {
       loadQuotas();
       loadForwardingRules();
-      startAutoRefresh();
     }
     return () => stopAutoRefresh();
   });

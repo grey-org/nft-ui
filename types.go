@@ -15,15 +15,17 @@ type QuotaRule struct {
 
 // AllowedPort represents an allowed inbound port from the input chain
 type AllowedPort struct {
-	Port    int    `json:"port"`
-	Handle  int64  `json:"handle"`
-	Managed bool   `json:"managed"` // true if comment == "nft-ui managed"
-	Comment string `json:"comment,omitempty"`
+	Port     int    `json:"port"`
+	Protocol string `json:"protocol"` // "tcp", "udp", or "both"
+	Handle   int64  `json:"handle"`
+	Managed  bool   `json:"managed"` // true if comment == "nft-ui managed"
+	Comment  string `json:"comment,omitempty"`
 }
 
 // AddPortRequest is the request body for adding a new allowed port
 type AddPortRequest struct {
-	Port int `json:"port"`
+	Port     int    `json:"port"`
+	Protocol string `json:"protocol"` // "tcp", "udp", or "both"; defaults to "tcp"
 }
 
 // QuotasResponse is the API response for listing quotas
@@ -230,13 +232,19 @@ type DisabledForwardsFile struct {
 	Rules []ForwardingRule `json:"rules"`
 }
 
+// BackupPort represents a single port entry in a backup
+type BackupPort struct {
+	Port     int    `json:"port"`
+	Protocol string `json:"protocol"` // "tcp", "udp", or "both"
+}
+
 // BackupData represents the exported configuration backup
 type BackupData struct {
 	Version    int                `json:"version"`
 	CreatedAt  string             `json:"created_at"`
 	Quotas     []BackupQuota      `json:"quotas"`
 	Forwarding []BackupForwarding `json:"forwarding"`
-	Ports      []int              `json:"ports"`
+	Ports      []BackupPort       `json:"ports"`
 }
 
 // BackupQuota represents a quota rule in the backup

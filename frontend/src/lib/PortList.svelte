@@ -55,7 +55,8 @@
           style="padding: 3px 7px; border: 0.5px solid var(--border); border-radius: 2px; background: transparent; font-size: 11px;"
         >
           <span style="color: {port.managed ? 'var(--teal)' : 'var(--text)'};">{port.port}</span>
-          {#if port.comment}
+          <span style="font-size: 9px; color: var(--text-dim); letter-spacing: 0.05em;">{port.protocol || 'tcp'}</span>
+          {#if port.comment && port.comment !== 'nft-ui managed'}
             <span style="font-size: 10px; color: var(--text-muted);">{port.comment}</span>
           {/if}
           {#if port.managed && !$readOnly}
