@@ -16,6 +16,23 @@ import {
   setBypass as apiSetBypass,
 } from './api.js';
 
+// Theme store
+function createThemeStore() {
+  const stored = typeof localStorage !== 'undefined' ? localStorage.getItem('theme') : null;
+  const initial = (stored === 'dark' || stored === 'light' || stored === 'auto') ? stored : 'auto';
+  const { subscribe, set: _set } = writable(initial);
+  return {
+    subscribe,
+    set(value) {
+      localStorage.setItem('theme', value);
+      document.documentElement.setAttribute('data-theme', value);
+      _set(value);
+    },
+  };
+}
+
+export const theme = createThemeStore();
+
 // Core state
 export const quotas = writable([]);
 export const allowedPorts = writable([]);

@@ -10,6 +10,7 @@
     notifications,
     removeNotification,
     isEditingModal,
+    theme,
   } from './lib/stores.js';
   import QuotaList from './lib/QuotaList.svelte';
   import PortList from './lib/PortList.svelte';
@@ -34,6 +35,7 @@
   let currentRoute = $state(getInitialRoute());
 
   onMount(() => {
+    document.documentElement.setAttribute('data-theme', $theme);
     if (currentRoute === 'admin') {
       loadQuotas();
       loadForwardingRules();
@@ -83,6 +85,16 @@
             {#if $readOnly}
               <span class="badge badge-warning">read-only</span>
             {/if}
+            <div class="flex items-center" style="border: 0.5px solid var(--border); border-radius: 2px;">
+              {#each ['dark', 'auto', 'light'] as mode}
+                <button
+                  class="btn btn-sm"
+                  class:btn-primary={$theme === mode}
+                  style="border: none; border-radius: 0;"
+                  onclick={() => theme.set(mode)}
+                >{mode}</button>
+              {/each}
+            </div>
             <button class="btn btn-sm btn-secondary" onclick={handleRefresh} disabled={$loading}>
               {$loading ? 'loading…' : 'refresh'}
             </button>
