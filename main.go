@@ -52,6 +52,9 @@ func main() {
 	if err := fwdMgr.ReconcileManagedForwardingRules(); err != nil {
 		logger.Printf("Warning: failed to reconcile forwarding rules: %v", err)
 	}
+	if err := fwdMgr.ReconcileMSSClampRules(); err != nil {
+		logger.Printf("Warning: failed to reconcile MSS clamp rules: %v", err)
+	}
 
 	// Initialize token generator (may be nil if not configured)
 	var tokenGen *TokenGenerator
@@ -119,6 +122,9 @@ func main() {
 
 	// Raw ruleset endpoint
 	api.GET("/raw-ruleset", handler.GetRawRuleset)
+
+	// System status endpoints
+	api.GET("/system/conntrack", handler.GetConntrackStatus)
 
 	// Backup/restore endpoints
 	api.GET("/backup", handler.ExportBackup)

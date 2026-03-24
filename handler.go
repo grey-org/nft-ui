@@ -837,6 +837,22 @@ func (h *Handler) GetBypass(c echo.Context) error {
 	})
 }
 
+// GetConntrackStatus handles GET /api/v1/system/conntrack
+func (h *Handler) GetConntrackStatus(c echo.Context) error {
+	stats, err := h.nft.GetConntrackStats()
+	if err != nil {
+		h.logger.Printf("Error reading conntrack stats: %v", err)
+		return c.JSON(http.StatusInternalServerError, APIResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+	}
+	return c.JSON(http.StatusOK, ConntrackResponse{
+		Success: true,
+		Data:    stats,
+	})
+}
+
 // SetBypass handles POST /api/v1/bypass
 func (h *Handler) SetBypass(c echo.Context) error {
 	var req SetBypassRequest

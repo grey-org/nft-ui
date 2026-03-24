@@ -270,6 +270,20 @@ type ImportSummary struct {
 	PortsSkipped      int `json:"ports_skipped"`
 }
 
+// ConntrackStatus holds current conntrack table utilisation
+type ConntrackStatus struct {
+	Current      int64   `json:"current"`       // nf_conntrack_count
+	Max          int64   `json:"max"`           // nf_conntrack_max
+	UsagePercent float64 `json:"usage_percent"` // current/max * 100
+	Warning      bool    `json:"warning"`       // true when usage_percent >= 80
+}
+
+// ConntrackResponse is the API response for GET /api/v1/system/conntrack
+type ConntrackResponse struct {
+	Success bool            `json:"success"`
+	Data    ConntrackStatus `json:"data"`
+}
+
 // BypassConfig holds the persisted forward-bypass configuration
 type BypassConfig struct {
 	Enabled  bool   `json:"enabled"`

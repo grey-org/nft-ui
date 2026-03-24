@@ -26,7 +26,7 @@ const ForwardChainName = "forward"
 
 // NFTManager handles all nftables operations
 type NFTManager struct {
-	mu          sync.Mutex
+	mu          sync.RWMutex
 	binary      string
 	tableFamily string
 	tableName   string
@@ -60,8 +60,8 @@ func (n *NFTManager) execNFT(args ...string) ([]byte, error) {
 
 // ListQuotas returns all quota rules from the output chain and forward chain
 func (n *NFTManager) ListQuotas() ([]QuotaRule, error) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
+	n.mu.RLock()
+	defer n.mu.RUnlock()
 
 	// Get quota rules from output chain
 	output, err := n.execNFT("-j", "-a", "list", "chain", n.tableFamily, n.tableName, n.chainName)
@@ -583,8 +583,8 @@ func sanitizeComment(s string) string {
 
 // ListAllowedPorts returns allowed inbound ports from the input chain
 func (n *NFTManager) ListAllowedPorts() ([]AllowedPort, error) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
+	n.mu.RLock()
+	defer n.mu.RUnlock()
 
 	// Get JSON output from input chain
 	output, err := n.execNFT("-j", "-a", "list", "chain", n.tableFamily, n.tableName, "input")
@@ -807,8 +807,8 @@ func (n *NFTManager) DeleteAllowedPort(handle int64) error {
 
 // GetRawRuleset returns the raw output of 'nft list ruleset'
 func (n *NFTManager) GetRawRuleset() (string, error) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
+	n.mu.RLock()
+	defer n.mu.RUnlock()
 
 	output, err := n.execNFT("list", "ruleset")
 	if err != nil {
@@ -816,6 +816,42 @@ func (n *NFTManager) GetRawRuleset() (string, error) {
 	}
 
 	return string(output), nil
+}
+
+// GetConntrackStats reads the current conntrack table utilisation from /proc.
+func (n *NFTManager) GetConntrackStats() (ConntrackStatus, error) {
+	readInt := func(path string) (int64, error) {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return 0, err
+		}
+		v, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("parse %s: %w", path, err)
+		}
+		return v, nil
+	}
+
+	current, err := readInt("/proc/sys/net/netfilter/nf_conntrack_count")
+	if err != nil {
+		return ConntrackStatus{}, err
+	}
+	max, err := readInt("/proc/sys/net/netfilter/nf_conntrack_max")
+	if err != nil {
+		return ConntrackStatus{}, err
+	}
+
+	var usagePct float64
+	if max > 0 {
+		usagePct = float64(current) / float64(max) * 100
+	}
+
+	return ConntrackStatus{
+		Current:      current,
+		Max:          max,
+		UsagePercent: usagePct,
+		Warning:      usagePct >= 80,
+	}, nil
 }
 
 // SaveRuleset dumps the current nftables ruleset to the configured file path
