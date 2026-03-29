@@ -565,7 +565,7 @@ func generateIfaceForwardID() string {
 
 // sanitizeIfaceComment sanitizes a user-provided comment for use in nft rules.
 func sanitizeIfaceComment(s string) string {
-	re := regexp.MustCompile(`[^a-zA-Z0-9\s\-_.\u4e00-\u9fff]`)
+	re := regexp.MustCompile(`[^a-zA-Z0-9\s\-_.` + "\u4e00-\u9fff" + `]`)
 	s = re.ReplaceAllString(s, "")
 	if len(s) > 100 {
 		s = s[:100]
