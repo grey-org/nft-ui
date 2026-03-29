@@ -164,6 +164,57 @@ export async function importBackup(file) {
   });
 }
 
+// Interface Forwarding API
+export async function fetchIfaceForwardingRules() {
+  return request('/iface-forwarding');
+}
+
+export async function addIfaceForwardingRule(iifName, addrFamily, dstAddr, natTo, protocol, comment) {
+  return request('/iface-forwarding', {
+    method: 'POST',
+    body: JSON.stringify({
+      iif_name: iifName,
+      addr_family: addrFamily,
+      dst_addr: dstAddr,
+      nat_to: natTo,
+      protocol,
+      comment,
+    }),
+  });
+}
+
+export async function editIfaceForwardingRule(id, iifName, addrFamily, dstAddr, natTo, protocol, comment) {
+  return request(`/iface-forwarding/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      iif_name: iifName,
+      addr_family: addrFamily,
+      dst_addr: dstAddr,
+      nat_to: natTo,
+      protocol,
+      comment,
+    }),
+  });
+}
+
+export async function deleteIfaceForwardingRule(id) {
+  return request(`/iface-forwarding/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function enableIfaceForwardingRule(id) {
+  return request(`/iface-forwarding/${encodeURIComponent(id)}/enable`, {
+    method: 'POST',
+  });
+}
+
+export async function disableIfaceForwardingRule(id) {
+  return request(`/iface-forwarding/${encodeURIComponent(id)}/disable`, {
+    method: 'POST',
+  });
+}
+
 // Bypass API
 export async function fetchBypass() {
   return request('/bypass');

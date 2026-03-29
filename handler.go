@@ -13,6 +13,7 @@ import (
 type Handler struct {
 	nft       *NFTManager
 	fwd       *ForwardingManager
+	ifaceFwd  *IfaceForwardingManager
 	cfg       *Config
 	logger    *log.Logger
 	tokenGen  *TokenGenerator
@@ -20,10 +21,11 @@ type Handler struct {
 }
 
 // NewHandler creates a new Handler
-func NewHandler(nft *NFTManager, fwd *ForwardingManager, cfg *Config, logger *log.Logger, tokenGen *TokenGenerator, bypassMgr *BypassManager) *Handler {
+func NewHandler(nft *NFTManager, fwd *ForwardingManager, ifaceFwd *IfaceForwardingManager, cfg *Config, logger *log.Logger, tokenGen *TokenGenerator, bypassMgr *BypassManager) *Handler {
 	return &Handler{
 		nft:       nft,
 		fwd:       fwd,
+		ifaceFwd:  ifaceFwd,
 		cfg:       cfg,
 		logger:    logger,
 		tokenGen:  tokenGen,
@@ -863,6 +865,143 @@ func (h *Handler) GetConntrackStatus(c echo.Context) error {
 	return c.JSON(http.StatusOK, ConntrackResponse{
 		Success: true,
 		Data:    stats,
+	})
+}
+
+// ListIfaceForwarding handles GET /api/v1/iface-forwarding
+func (h *Handler) ListIfaceForwarding(c echo.Context) error {
+	rules, err := h.ifaceFwd.ListRules()
+	if err != nil {
+		h.logger.Printf("Error listing iface forwarding rules: %v", err)
+		return c.JSON(http.StatusInternalServerError, APIResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+	}
+	if rules == nil {
+		rules = []IfaceForwardRule{}
+	}
+	return c.JSON(http.StatusOK, IfaceForwardingResponse{
+		Rules:    rules,
+		ReadOnly: h.cfg.ReadOnly,
+	})
+}
+
+// AddIfaceForwarding handles POST /api/v1/iface-forwarding
+func (h *Handler) AddIfaceForwarding(c echo.Context) error {
+	var req AddIfaceForwardRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, APIResponse{
+			Success: false,
+			Error:   "Invalid request body",
+		})
+	}
+
+	rule, err := h.ifaceFwd.AddRule(req)
+	if err != nil {
+		h.logger.Printf("Error adding iface forwarding rule: %v", err)
+		return c.JSON(http.StatusInternalServerError, APIResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+	}
+
+	h.logger.Printf("Iface forwarding rule added: %s iif=%s %s daddr=%s -> %s proto=%s",
+		rule.ID, rule.IifName, rule.AddrFamily, rule.DstAddr, rule.NatTo, rule.Protocol)
+	h.saveRuleset()
+	return c.JSON(http.StatusCreated, APIResponse{
+		Success: true,
+		Message: "Interface forwarding rule added successfully",
+	})
+}
+
+// EditIfaceForwarding handles PUT /api/v1/iface-forwarding/:id
+func (h *Handler) EditIfaceForwarding(c echo.Context) error {
+	id := c.Param("id")
+
+	var req EditIfaceForwardRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, APIResponse{
+			Success: false,
+			Error:   "Invalid request body",
+		})
+	}
+
+	rule, err := h.ifaceFwd.EditRule(id, req)
+	if err != nil {
+		h.logger.Printf("Error editing iface forwarding rule %s: %v", id, err)
+		return c.JSON(http.StatusInternalServerError, APIResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+	}
+
+	h.logger.Printf("Iface forwarding rule edited: %s iif=%s %s daddr=%s -> %s proto=%s",
+		rule.ID, rule.IifName, rule.AddrFamily, rule.DstAddr, rule.NatTo, rule.Protocol)
+	h.saveRuleset()
+	return c.JSON(http.StatusOK, APIResponse{
+		Success: true,
+		Message: "Interface forwarding rule updated successfully",
+	})
+}
+
+// DeleteIfaceForwarding handles DELETE /api/v1/iface-forwarding/:id
+func (h *Handler) DeleteIfaceForwarding(c echo.Context) error {
+	id := c.Param("id")
+
+	if err := h.ifaceFwd.DeleteRule(id); err != nil {
+		h.logger.Printf("Error deleting iface forwarding rule %s: %v", id, err)
+		return c.JSON(http.StatusInternalServerError, APIResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+	}
+
+	h.logger.Printf("Iface forwarding rule deleted: %s", id)
+	h.saveRuleset()
+	return c.JSON(http.StatusOK, APIResponse{
+		Success: true,
+		Message: "Interface forwarding rule deleted successfully",
+	})
+}
+
+// EnableIfaceForwarding handles POST /api/v1/iface-forwarding/:id/enable
+func (h *Handler) EnableIfaceForwarding(c echo.Context) error {
+	id := c.Param("id")
+
+	if err := h.ifaceFwd.EnableRule(id); err != nil {
+		h.logger.Printf("Error enabling iface forwarding rule %s: %v", id, err)
+		return c.JSON(http.StatusInternalServerError, APIResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+	}
+
+	h.logger.Printf("Iface forwarding rule enabled: %s", id)
+	h.saveRuleset()
+	return c.JSON(http.StatusOK, APIResponse{
+		Success: true,
+		Message: "Interface forwarding rule enabled successfully",
+	})
+}
+
+// DisableIfaceForwarding handles POST /api/v1/iface-forwarding/:id/disable
+func (h *Handler) DisableIfaceForwarding(c echo.Context) error {
+	id := c.Param("id")
+
+	if err := h.ifaceFwd.DisableRule(id); err != nil {
+		h.logger.Printf("Error disabling iface forwarding rule %s: %v", id, err)
+		return c.JSON(http.StatusInternalServerError, APIResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+	}
+
+	h.logger.Printf("Iface forwarding rule disabled: %s", id)
+	h.saveRuleset()
+	return c.JSON(http.StatusOK, APIResponse{
+		Success: true,
+		Message: "Interface forwarding rule disabled successfully",
 	})
 }
 

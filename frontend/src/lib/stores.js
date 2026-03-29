@@ -14,6 +14,12 @@ import {
   importBackup as apiImportBackup,
   fetchBypass as apiFetchBypass,
   setBypass as apiSetBypass,
+  fetchIfaceForwardingRules,
+  addIfaceForwardingRule as apiAddIfaceForwarding,
+  editIfaceForwardingRule as apiEditIfaceForwarding,
+  deleteIfaceForwardingRule as apiDeleteIfaceForwarding,
+  enableIfaceForwardingRule as apiEnableIfaceForwarding,
+  disableIfaceForwardingRule as apiDisableIfaceForwarding,
 } from './api.js';
 
 // Theme store
@@ -278,6 +284,77 @@ export async function disableForwardingRule(id) {
     await loadForwardingRules();
   } catch (e) {
     errorNotify(`Failed to disable forwarding rule: ${e.message}`);
+    throw e;
+  }
+}
+
+// Interface forwarding state
+export const ifaceForwardingRules = writable([]);
+export const ifaceForwardingLoading = writable(false);
+
+export async function loadIfaceForwardingRules() {
+  ifaceForwardingLoading.set(true);
+  try {
+    const data = await fetchIfaceForwardingRules();
+    ifaceForwardingRules.set(data.rules || []);
+  } catch (e) {
+    errorNotify(`Failed to load interface forwarding rules: ${e.message}`);
+  } finally {
+    ifaceForwardingLoading.set(false);
+  }
+}
+
+export async function addIfaceForwardingRule(iifName, addrFamily, dstAddr, natTo, protocol, comment) {
+  try {
+    await apiAddIfaceForwarding(iifName, addrFamily, dstAddr, natTo, protocol, comment);
+    success('Interface forwarding rule added');
+    await loadIfaceForwardingRules();
+  } catch (e) {
+    errorNotify(`Failed to add interface forwarding rule: ${e.message}`);
+    throw e;
+  }
+}
+
+export async function editIfaceForwardingRule(id, iifName, addrFamily, dstAddr, natTo, protocol, comment) {
+  try {
+    await apiEditIfaceForwarding(id, iifName, addrFamily, dstAddr, natTo, protocol, comment);
+    success('Interface forwarding rule updated');
+    await loadIfaceForwardingRules();
+  } catch (e) {
+    errorNotify(`Failed to update interface forwarding rule: ${e.message}`);
+    throw e;
+  }
+}
+
+export async function removeIfaceForwardingRule(id) {
+  try {
+    await apiDeleteIfaceForwarding(id);
+    success('Interface forwarding rule deleted');
+    await loadIfaceForwardingRules();
+  } catch (e) {
+    errorNotify(`Failed to delete interface forwarding rule: ${e.message}`);
+    throw e;
+  }
+}
+
+export async function enableIfaceForwardingRule(id) {
+  try {
+    await apiEnableIfaceForwarding(id);
+    success('Interface forwarding rule enabled');
+    await loadIfaceForwardingRules();
+  } catch (e) {
+    errorNotify(`Failed to enable interface forwarding rule: ${e.message}`);
+    throw e;
+  }
+}
+
+export async function disableIfaceForwardingRule(id) {
+  try {
+    await apiDisableIfaceForwarding(id);
+    success('Interface forwarding rule disabled');
+    await loadIfaceForwardingRules();
+  } catch (e) {
+    errorNotify(`Failed to disable interface forwarding rule: ${e.message}`);
     throw e;
   }
 }

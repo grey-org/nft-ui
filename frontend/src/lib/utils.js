@@ -54,6 +54,24 @@ export function isValidIPv4(ip) {
   return pattern.test(ip);
 }
 
+// Validate IPv6 address
+export function isValidIPv6(ip) {
+  if (!ip) return false;
+  const parsed = ip.match(/^[0-9a-fA-F:]+$/);
+  if (!parsed) return false;
+  // Use a simple structural check: must contain at least one colon and no IPv4 octets
+  if (!ip.includes(':')) return false;
+  // Check for valid IPv6 format via a broader pattern
+  const ipv6Pattern = /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$|^::([0-9a-fA-F]{0,4}:){0,6}[0-9a-fA-F]{0,4}$|^([0-9a-fA-F]{0,4}:){1,6}:[0-9a-fA-F]{0,4}$/;
+  return ipv6Pattern.test(ip);
+}
+
+// Validate IP address by family ("ip" = IPv4, "ip6" = IPv6)
+export function isValidIPForFamily(ip, family) {
+  if (family === 'ip6') return isValidIPv6(ip);
+  return isValidIPv4(ip);
+}
+
 // Format protocol for display
 export function formatProtocol(protocol) {
   switch (protocol) {

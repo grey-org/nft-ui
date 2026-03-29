@@ -3,6 +3,7 @@
   import {
     loadQuotas,
     loadForwardingRules,
+    loadIfaceForwardingRules,
     loading,
     error,
     readOnly,
@@ -15,6 +16,7 @@
   import QuotaList from './lib/QuotaList.svelte';
   import PortList from './lib/PortList.svelte';
   import ForwardingList from './lib/ForwardingList.svelte';
+  import IfaceForwardingList from './lib/IfaceForwardingList.svelte';
   import RawRuleset from './lib/RawRuleset.svelte';
   import BypassPanel from './lib/BypassPanel.svelte';
   import BackupPanel from './lib/BackupPanel.svelte';
@@ -39,6 +41,7 @@
     if (currentRoute === 'admin') {
       loadQuotas();
       loadForwardingRules();
+      loadIfaceForwardingRules();
     }
     return () => stopAutoRefresh();
   });
@@ -51,6 +54,7 @@
         if ($isEditingModal) return;
         loadQuotas();
         loadForwardingRules();
+        loadIfaceForwardingRules();
       }, interval * 1000);
     }
   }
@@ -65,6 +69,7 @@
   function handleRefresh() {
     loadQuotas();
     loadForwardingRules();
+    loadIfaceForwardingRules();
   }
 
 
@@ -116,6 +121,7 @@
       <QuotaList />
       <PortList />
       <ForwardingList />
+      <IfaceForwardingList />
       <BypassPanel />
       <BackupPanel />
       <RawRuleset />

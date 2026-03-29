@@ -292,6 +292,57 @@ type ConntrackResponse struct {
 	Data    ConntrackStatus `json:"data"`
 }
 
+// IfaceForwardRule represents an interface-based forwarding rule (dual-NIC DNAT)
+type IfaceForwardRule struct {
+	ID         string `json:"id"`          // "ifwd_<8hex>"
+	IifName    string `json:"iif_name"`    // e.g. "eth0"
+	AddrFamily string `json:"addr_family"` // "ip" or "ip6"
+	DstAddr    string `json:"dst_addr"`    // destination address to match
+	NatTo      string `json:"nat_to"`      // DNAT target address
+	Protocol   string `json:"protocol"`   // "udp", "tcp", or "all"
+	Comment    string `json:"comment"`    // user comment
+	Enabled    bool   `json:"enabled"`
+	Managed    bool   `json:"managed"`
+	Handle     int64  `json:"handle"`
+}
+
+// AddIfaceForwardRequest is the request body for adding an interface forwarding rule
+type AddIfaceForwardRequest struct {
+	IifName    string `json:"iif_name"`
+	AddrFamily string `json:"addr_family"`
+	DstAddr    string `json:"dst_addr"`
+	NatTo      string `json:"nat_to"`
+	Protocol   string `json:"protocol"`
+	Comment    string `json:"comment"`
+}
+
+// EditIfaceForwardRequest is the request body for editing an interface forwarding rule
+type EditIfaceForwardRequest struct {
+	IifName    string `json:"iif_name"`
+	AddrFamily string `json:"addr_family"`
+	DstAddr    string `json:"dst_addr"`
+	NatTo      string `json:"nat_to"`
+	Protocol   string `json:"protocol"`
+	Comment    string `json:"comment"`
+}
+
+// IfaceForwardingResponse is the API response for listing interface forwarding rules
+type IfaceForwardingResponse struct {
+	Rules    []IfaceForwardRule `json:"rules"`
+	ReadOnly bool               `json:"read_only"`
+}
+
+// DisabledIfaceForwardsFile represents the JSON structure for storing disabled iface forwarding rules
+type DisabledIfaceForwardsFile struct {
+	Rules []IfaceForwardRule `json:"rules"`
+}
+
+const (
+	IfaceForwardComment   = "nft-ui iface-fwd"
+	IfaceForwardTableName = "nft-ui-iface-fwd"
+	IfaceForwardChainName = "prerouting"
+)
+
 // BypassConfig holds the persisted forward-bypass configuration
 type BypassConfig struct {
 	Enabled  bool   `json:"enabled"`

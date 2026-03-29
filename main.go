@@ -38,6 +38,9 @@ func main() {
 	// Initialize forwarding manager
 	fwdMgr := NewForwardingManager(cfg)
 
+	// Initialize interface forwarding manager
+	ifaceFwdMgr := NewIfaceForwardingManager(cfg, logger)
+
 	// Initialize bypass manager and apply persisted state on startup
 	bypassMgr := NewBypassManager(cfg.BypassStatePath, fwdMgr)
 	if bypassCfg, err := bypassMgr.Load(); err != nil {
@@ -63,7 +66,7 @@ func main() {
 	}
 
 	// Initialize handler
-	handler := NewHandler(nftMgr, fwdMgr, cfg, logger, tokenGen, bypassMgr)
+	handler := NewHandler(nftMgr, fwdMgr, ifaceFwdMgr, cfg, logger, tokenGen, bypassMgr)
 
 	// Create Echo instance
 	e := echo.New()
@@ -115,6 +118,14 @@ func main() {
 	api.DELETE("/forwarding/:id", handler.DeleteForwarding)
 	api.POST("/forwarding/:id/enable", handler.EnableForwarding)
 	api.POST("/forwarding/:id/disable", handler.DisableForwarding)
+
+	// Interface forwarding management endpoints
+	api.GET("/iface-forwarding", handler.ListIfaceForwarding)
+	api.POST("/iface-forwarding", handler.AddIfaceForwarding)
+	api.PUT("/iface-forwarding/:id", handler.EditIfaceForwarding)
+	api.DELETE("/iface-forwarding/:id", handler.DeleteIfaceForwarding)
+	api.POST("/iface-forwarding/:id/enable", handler.EnableIfaceForwarding)
+	api.POST("/iface-forwarding/:id/disable", handler.DisableIfaceForwarding)
 
 	// Bypass management endpoints
 	api.GET("/bypass", handler.GetBypass)
