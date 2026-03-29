@@ -455,20 +455,19 @@ func (m *IfaceForwardingManager) fillRuleFromExpr(rule *IfaceForwardRule, expr [
 	}
 }
 
-var ifaceForwardIDRe = regexp.MustCompile(`^nft-ui iface-fwd ([0-9a-f]{8})`)
+var ifaceForwardIDRe = regexp.MustCompile(`^nft-ui iface-fwd (ifwd_[0-9a-f]{8})`)
 
 func (m *IfaceForwardingManager) extractIDFromComment(comment string) string {
 	matches := ifaceForwardIDRe.FindStringSubmatch(comment)
 	if len(matches) < 2 {
 		return ""
 	}
-	return "ifwd_" + matches[1]
+	return matches[1]
 }
 
 func (m *IfaceForwardingManager) extractUserCommentFromComment(comment, id string) string {
-	// comment format: "nft-ui iface-fwd <8hex> <user comment>"
-	hexPart := strings.TrimPrefix(id, "ifwd_")
-	prefix := IfaceForwardComment + " " + hexPart + " "
+	// comment format: "nft-ui iface-fwd ifwd_<8hex> <user comment>"
+	prefix := IfaceForwardComment + " " + id + " "
 	if strings.HasPrefix(comment, prefix) {
 		return strings.TrimSpace(comment[len(prefix):])
 	}
