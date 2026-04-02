@@ -496,7 +496,7 @@ func (n *NFTManager) addQuotaRule(port int, bytes int64, comment string) error {
 		fwdComment = fmt.Sprintf("%s %s", fwdComment, comment)
 	}
 	fwdArgs := []string{
-		"add", "rule", n.tableFamily, n.tableName, ForwardChainName,
+		"insert", "rule", n.tableFamily, n.tableName, ForwardChainName,
 		"ct", "original", "proto-dst", strconv.Itoa(port),
 		"quota", "over", strconv.FormatInt(mbytes, 10), "mbytes",
 		"drop",
@@ -966,6 +966,110 @@ func (n *NFTManager) SaveRuleset() error {
 
 	if err := os.Rename(tmpPath, n.rulesetPath); err != nil {
 		return fmt.Errorf("failed to rename ruleset file: %w", err)
+	}
+
+	return nil
+}
+
+// ReconcileForwardQuotaRules ensures all forward-chain quota rules appear before
+// the forwarding accept rules. After DNAT in prerouting the accept rules terminate
+// chain traversal, so any quota rule appended after them is never evaluated.
+// This repairs rulesets saved before the insert-at-front fix was applied.
+func (n *NFTManager) ReconcileForwardQuotaRules() error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	output, err := n.execNFT("-j", "-a", "list", "chain", n.tableFamily, n.tableName, ForwardChainName)
+	if err != nil {
+		return nil // chain doesn't exist yet, nothing to do
+	}
+
+	var ruleset NFTRuleset
+	if err := json.Unmarshal(output, &ruleset); err != nil {
+		return fmt.Errorf("failed to parse forward chain: %w", err)
+	}
+
+	// Walk rules in order; once we've seen the first accept rule, any subsequent
+	// quota rule is mispositioned and needs to be moved to the front.
+	type quotaToMove struct {
+		handle  int64
+		port    int
+		mbytes  int64
+		comment string
+	}
+
+	seenAccept := false
+	var toMove []quotaToMove
+
+	for _, obj := range ruleset.NFTables {
+		r := obj.Rule
+		if r == nil || r.Chain != ForwardChainName {
+			continue
+		}
+
+		isAccept := false
+		isQuota := false
+		var port int
+		var mbytes int64
+
+		for _, expr := range r.Expr {
+			if _, ok := expr["accept"]; ok {
+				isAccept = true
+			}
+			if q, ok := expr["quota"].(map[string]interface{}); ok {
+				isQuota = true
+				if val, ok := q["val"].(float64); ok {
+					unit, _ := q["val_unit"].(string)
+					mbytes = convertToBytes(int64(val), unit) / (1000 * 1000)
+					if mbytes < 1 {
+						mbytes = 1
+					}
+				}
+			}
+			if mm, ok := expr["match"].(map[string]interface{}); ok {
+				if ct, ok := mm["left"].(map[string]interface{}); ok {
+					if ctMap, ok := ct["ct"].(map[string]interface{}); ok {
+						if ctMap["key"] == "proto-dst" && ctMap["dir"] == "original" {
+							if p, ok := mm["right"].(float64); ok {
+								port = int(p)
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if isAccept {
+			seenAccept = true
+		}
+		if isQuota && seenAccept && port > 0 {
+			toMove = append(toMove, quotaToMove{
+				handle:  r.Handle,
+				port:    port,
+				mbytes:  mbytes,
+				comment: r.Comment,
+			})
+		}
+	}
+
+	for _, q := range toMove {
+		// Delete the mispositioned rule
+		if _, err := n.execNFT("delete", "rule", n.tableFamily, n.tableName, ForwardChainName,
+			"handle", strconv.FormatInt(q.handle, 10)); err != nil {
+			return fmt.Errorf("failed to delete mispositioned quota rule (handle %d): %w", q.handle, err)
+		}
+		// Reinsert at the front
+		args := []string{
+			"insert", "rule", n.tableFamily, n.tableName, ForwardChainName,
+			"ct", "original", "proto-dst", strconv.Itoa(q.port),
+			"quota", "over", strconv.FormatInt(q.mbytes, 10), "mbytes",
+			"drop",
+			"comment", fmt.Sprintf(`"%s"`, q.comment),
+		}
+		if _, err := n.execNFT(args...); err != nil {
+			return fmt.Errorf("failed to reinsert quota rule for port %d: %w", q.port, err)
+		}
+		fmt.Printf("[nft-ui] reconciled forward quota rule for port %d (moved before accept rules)\n", q.port)
 	}
 
 	return nil
