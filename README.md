@@ -3,7 +3,7 @@
   
   # nft-ui
   
-  [![Release](https://github.com/nft-ui/nft-ui/actions/workflows/release.yml/badge.svg)](https://github.com/nft-ui/nft-ui/actions/workflows/release.yml)
+  [![Release](https://github.com/grey-org/nft-ui/actions/workflows/release.yml/badge.svg)](https://github.com/grey-org/nft-ui/actions/workflows/release.yml)
 </div>
 
 A web-based management tool for nftables firewall rules, including outbound traffic quotas, inbound port access control, and port forwarding management.
@@ -22,47 +22,47 @@ If GitHub access is slow or blocked in your region, fetch the installer through 
 
 **Stable (main branch):**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nft-ui/nft-ui/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/grey-org/nft-ui/main/install.sh | sudo bash
 ```
 
 **Stable via GitHub proxy:**
 ```bash
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/nft-ui/nft-ui/main/install.sh | sudo bash -s -- --github-proxy https://gh-proxy.com/
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/grey-org/nft-ui/main/install.sh | sudo bash -s -- --github-proxy https://gh-proxy.com/
 ```
 
 **Beta (dev branch):**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nft-ui/nft-ui/dev/install.sh | sudo bash -s -- --beta
+curl -fsSL https://raw.githubusercontent.com/grey-org/nft-ui/dev/install.sh | sudo bash -s -- --beta
 ```
 
 **Beta via GitHub proxy:**
 ```bash
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/nft-ui/nft-ui/dev/install.sh | sudo bash -s -- --beta --github-proxy https://gh-proxy.com/
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/grey-org/nft-ui/dev/install.sh | sudo bash -s -- --beta --github-proxy https://gh-proxy.com/
 ```
 
 **Specific version:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nft-ui/nft-ui/main/install.sh | sudo bash -s -- --tag v0.4.5
+curl -fsSL https://raw.githubusercontent.com/grey-org/nft-ui/main/install.sh | sudo bash -s -- --tag v0.4.5
 ```
 
 **Specific version via GitHub proxy:**
 ```bash
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/nft-ui/nft-ui/main/install.sh | sudo bash -s -- --tag v0.4.5 --github-proxy https://gh-proxy.com/
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/grey-org/nft-ui/main/install.sh | sudo bash -s -- --tag v0.4.5 --github-proxy https://gh-proxy.com/
 ```
 
 ### Manual Install
 
-Download the binary from [Releases](https://github.com/nft-ui/nft-ui/releases):
+Download the binary from [Releases](https://github.com/grey-org/nft-ui/releases):
 
 If you need a GitHub proxy for manual installation too, prepend the original GitHub URL with the proxy base, for example `https://gh-proxy.com/https://github.com/...` or `https://gh-proxy.com/https://api.github.com/...`.
 
 **Stable (latest release):**
 ```bash
 # Linux amd64
-curl -fsSL -o nft-ui-stable https://github.com/nft-ui/nft-ui/releases/latest/download/nft-ui-linux-amd64
+curl -fsSL -o nft-ui-stable https://github.com/grey-org/nft-ui/releases/latest/download/nft-ui-linux-amd64
 
 # Linux arm64
-curl -fsSL -o nft-ui-stable https://github.com/nft-ui/nft-ui/releases/latest/download/nft-ui-linux-arm64
+curl -fsSL -o nft-ui-stable https://github.com/grey-org/nft-ui/releases/latest/download/nft-ui-linux-arm64
 
 chmod +x nft-ui-stable
 sudo mv nft-ui-stable /usr/local/bin/nft-ui
@@ -71,13 +71,13 @@ sudo mv nft-ui-stable /usr/local/bin/nft-ui
 **Beta/Alpha (pre-release):**
 ```bash
 # Get latest pre-release tag
-TAG=$(curl -s https://api.github.com/repos/nft-ui/nft-ui/releases | jq -r '[.[] | select(.prerelease==true)][0].tag_name')
+TAG=$(curl -s https://api.github.com/repos/grey-org/nft-ui/releases | jq -r '[.[] | select(.prerelease==true)][0].tag_name')
 
 # Linux amd64
-curl -fsSL -o nft-ui-beta https://github.com/nft-ui/nft-ui/releases/download/${TAG}/nft-ui-linux-amd64
+curl -fsSL -o nft-ui-beta https://github.com/grey-org/nft-ui/releases/download/${TAG}/nft-ui-linux-amd64
 
 # Linux arm64
-curl -fsSL -o nft-ui-beta https://github.com/nft-ui/nft-ui/releases/download/${TAG}/nft-ui-linux-arm64
+curl -fsSL -o nft-ui-beta https://github.com/grey-org/nft-ui/releases/download/${TAG}/nft-ui-linux-arm64
 
 chmod +x nft-ui-beta
 sudo mv nft-ui-beta /usr/local/bin/nft-ui

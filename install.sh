@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-REPO="nft-ui/nft-ui"
+REPO="grey-org/nft-ui"
 INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="nft-ui"
 BETA_MODE=false

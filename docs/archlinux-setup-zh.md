@@ -31,7 +31,7 @@ sudo systemctl status nftables.service
 ### 稳定版本（推荐）
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nft-ui/nft-ui/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/grey-org/nft-ui/main/install.sh | sudo bash
 ```
 
 ### Beta/预发布版本
@@ -39,7 +39,7 @@ curl -fsSL https://raw.githubusercontent.com/nft-ui/nft-ui/main/install.sh | sud
 如果您想测试最新功能：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nft-ui/nft-ui/main/install.sh | sudo bash -s -- --beta
+curl -fsSL https://raw.githubusercontent.com/grey-org/nft-ui/main/install.sh | sudo bash -s -- --beta
 ```
 
 ### 指定版本
@@ -47,7 +47,7 @@ curl -fsSL https://raw.githubusercontent.com/nft-ui/nft-ui/main/install.sh | sud
 安装特定版本：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nft-ui/nft-ui/main/install.sh | sudo bash -s -- --tag v1.0.0
+curl -fsSL https://raw.githubusercontent.com/grey-org/nft-ui/main/install.sh | sudo bash -s -- --tag v1.0.0
 ```
 
 安装脚本将：
@@ -62,7 +62,7 @@ curl -fsSL https://raw.githubusercontent.com/nft-ui/nft-ui/main/install.sh | sud
 
 ```bash
 # 下载 systemd 服务文件
-sudo curl -fsSL https://raw.githubusercontent.com/nft-ui/nft-ui/main/nft-ui.service \
+sudo curl -fsSL https://raw.githubusercontent.com/grey-org/nft-ui/main/nft-ui.service \
     -o /etc/systemd/system/nft-ui.service
 ```
 
@@ -225,7 +225,7 @@ sudo ss -tlnp | grep 8080
 要更新到最新版本，只需再次运行安装脚本：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nft-ui/nft-ui/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/grey-org/nft-ui/main/install.sh | sudo bash
 ```
 
 然后重启服务：
@@ -256,10 +256,10 @@ sudo systemctl daemon-reload
 
 ## 其他资源
 
-- [GitHub 仓库](https://github.com/nft-ui/nft-ui)
+- [GitHub 仓库](https://github.com/grey-org/nft-ui)
 - [nftables 文档](https://wiki.nftables.org/)
 - [Arch Linux nftables Wiki](https://wiki.archlinux.org/title/Nftables)
 
 ## 支持
 
-如有问题、疑问或功能请求，请访问 [GitHub Issues](https://github.com/nft-ui/nft-ui/issues) 页面。
+如有问题、疑问或功能请求，请访问 [GitHub Issues](https://github.com/grey-org/nft-ui/issues) 页面。

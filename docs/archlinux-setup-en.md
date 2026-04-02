@@ -31,7 +31,7 @@ Use the official installation script to download and install the latest release:
 ### Stable Release (Recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nft-ui/nft-ui/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/grey-org/nft-ui/main/install.sh | sudo bash
 ```
 
 ### Beta/Pre-release Version
@@ -39,7 +39,7 @@ curl -fsSL https://raw.githubusercontent.com/nft-ui/nft-ui/main/install.sh | sud
 If you want to test the latest features:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nft-ui/nft-ui/main/install.sh | sudo bash -s -- --beta
+curl -fsSL https://raw.githubusercontent.com/grey-org/nft-ui/main/install.sh | sudo bash -s -- --beta
 ```
 
 ### Specific Version
@@ -47,7 +47,7 @@ curl -fsSL https://raw.githubusercontent.com/nft-ui/nft-ui/main/install.sh | sud
 To install a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nft-ui/nft-ui/main/install.sh | sudo bash -s -- --tag v1.0.0
+curl -fsSL https://raw.githubusercontent.com/grey-org/nft-ui/main/install.sh | sudo bash -s -- --tag v1.0.0
 ```
 
 The script will:
@@ -62,7 +62,7 @@ The script will:
 
 ```bash
 # Download the systemd service file
-sudo curl -fsSL https://raw.githubusercontent.com/nft-ui/nft-ui/main/nft-ui.service \
+sudo curl -fsSL https://raw.githubusercontent.com/grey-org/nft-ui/main/nft-ui.service \
     -o /etc/systemd/system/nft-ui.service
 ```
 
@@ -225,7 +225,7 @@ Change the listen address in the service configuration if needed.
 To update to the latest version, simply run the installation script again:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nft-ui/nft-ui/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/grey-org/nft-ui/main/install.sh | sudo bash
 ```
 
 Then restart the service:
@@ -256,10 +256,10 @@ sudo systemctl daemon-reload
 
 ## Additional Resources
 
-- [GitHub Repository](https://github.com/nft-ui/nft-ui)
+- [GitHub Repository](https://github.com/grey-org/nft-ui)
 - [nftables Documentation](https://wiki.nftables.org/)
 - [Arch Linux nftables Wiki](https://wiki.archlinux.org/title/Nftables)
 
 ## Support
 
-For issues, questions, or feature requests, please visit the [GitHub Issues](https://github.com/nft-ui/nft-ui/issues) page.
+For issues, questions, or feature requests, please visit the [GitHub Issues](https://github.com/grey-org/nft-ui/issues) page.
