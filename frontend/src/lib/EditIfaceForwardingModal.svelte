@@ -12,6 +12,7 @@
 
   let iifName = $state(rule.iif_name);
   let addrFamily = $state(rule.addr_family);
+  let natAddrFamily = $state(rule.nat_addr_family || '');
   let dstAddr = $state(rule.dst_addr);
   let natTo = $state(rule.nat_to);
   let protocol = $state(rule.protocol);
@@ -19,8 +20,14 @@
   let submitting = $state(false);
   let errors = $state({});
 
-  function validateAddr(addr) {
+  function validateDstAddr(addr) {
     if (addrFamily === 'ip') return isValidIPv4(addr);
+    return isValidIPv6(addr);
+  }
+
+  function validateNatAddr(addr) {
+    const f = natAddrFamily || addrFamily;
+    if (f === 'ip') return isValidIPv4(addr);
     return isValidIPv6(addr);
   }
 
@@ -33,11 +40,12 @@
     } else if (!/^[a-zA-Z0-9._:-]+$/.test(iifName)) {
       newErrors.iifName = 'interface name contains invalid characters';
     }
-    if (!validateAddr(dstAddr)) {
+    if (!validateDstAddr(dstAddr)) {
       newErrors.dstAddr = addrFamily === 'ip' ? 'enter a valid IPv4 address' : 'enter a valid IPv6 address';
     }
-    if (!validateAddr(natTo)) {
-      newErrors.natTo = addrFamily === 'ip' ? 'enter a valid IPv4 address' : 'enter a valid IPv6 address';
+    const effectiveNatFamily = natAddrFamily || addrFamily;
+    if (!validateNatAddr(natTo)) {
+      newErrors.natTo = effectiveNatFamily === 'ip' ? 'enter a valid IPv4 address' : 'enter a valid IPv6 address';
     }
     errors = newErrors;
     return Object.keys(newErrors).length === 0;
@@ -47,7 +55,7 @@
     if (!validate()) return;
     submitting = true;
     try {
-      await editIfaceForwardingRule(rule.id, iifName, addrFamily, dstAddr, natTo, protocol, comment);
+      await editIfaceForwardingRule(rule.id, iifName, addrFamily, natAddrFamily, dstAddr, natTo, protocol, comment);
       onclose?.();
     } catch (e) {
       // Error notification handled by store
@@ -96,11 +104,24 @@
       </div>
 
       <div class="mb-4">
-        <label for="addrFamily" class="label">Address Family</label>
-        <select id="addrFamily" class="select w-full" bind:value={addrFamily}>
-          <option value="ip">IPv4</option>
-          <option value="ip6">IPv6</option>
-        </select>
+        <label class="label">Address Family</label>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+          <div>
+            <span style="font-size: 10px; color: var(--text-muted); display: block; margin-bottom: 4px;">Match (inbound)</span>
+            <select id="addrFamily" class="select w-full" bind:value={addrFamily}>
+              <option value="ip">IPv4</option>
+              <option value="ip6">IPv6</option>
+            </select>
+          </div>
+          <div>
+            <span style="font-size: 10px; color: var(--text-muted); display: block; margin-bottom: 4px;">DNAT (outbound)</span>
+            <select id="natAddrFamily" class="select w-full" bind:value={natAddrFamily}>
+              <option value="">same as match</option>
+              <option value="ip">IPv4</option>
+              <option value="ip6">IPv6</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       <div class="mb-4">
@@ -118,7 +139,7 @@
         <label for="natTo" class="label">NAT To (DNAT target)</label>
         <input
           type="text" id="natTo" class="input" class:input-error={errors.natTo}
-          bind:value={natTo} placeholder={addrFamily === 'ip' ? '5.6.7.8' : '2001:db8::2'}
+          bind:value={natTo} placeholder={(natAddrFamily || addrFamily) === 'ip' ? '5.6.7.8' : '2001:db8::2'}
         />
         {#if errors.natTo}
           <span style="font-size: 10px; color: var(--danger); display: block; margin-top: 3px;">{errors.natTo}</span>

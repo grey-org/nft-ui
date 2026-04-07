@@ -106,7 +106,7 @@ func (m *IfaceForwardingManager) AddRule(req AddIfaceForwardRequest) (*IfaceForw
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if err := validateIfaceForwardFields(req.IifName, req.AddrFamily, req.DstAddr, req.NatTo, req.Protocol); err != nil {
+	if err := validateIfaceForwardFields(req.IifName, req.AddrFamily, req.NatAddrFamily, req.DstAddr, req.NatTo, req.Protocol); err != nil {
 		return nil, err
 	}
 
@@ -114,15 +114,16 @@ func (m *IfaceForwardingManager) AddRule(req AddIfaceForwardRequest) (*IfaceForw
 	comment := sanitizeIfaceComment(req.Comment)
 
 	rule := IfaceForwardRule{
-		ID:         id,
-		IifName:    req.IifName,
-		AddrFamily: req.AddrFamily,
-		DstAddr:    req.DstAddr,
-		NatTo:      req.NatTo,
-		Protocol:   req.Protocol,
-		Comment:    comment,
-		Enabled:    true,
-		Managed:    true,
+		ID:            id,
+		IifName:       req.IifName,
+		AddrFamily:    req.AddrFamily,
+		NatAddrFamily: req.NatAddrFamily,
+		DstAddr:       req.DstAddr,
+		NatTo:         req.NatTo,
+		Protocol:      req.Protocol,
+		Comment:       comment,
+		Enabled:       true,
+		Managed:       true,
 	}
 
 	if err := m.EnsureTableSetup(); err != nil {
@@ -154,7 +155,7 @@ func (m *IfaceForwardingManager) EditRule(id string, req EditIfaceForwardRequest
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if err := validateIfaceForwardFields(req.IifName, req.AddrFamily, req.DstAddr, req.NatTo, req.Protocol); err != nil {
+	if err := validateIfaceForwardFields(req.IifName, req.AddrFamily, req.NatAddrFamily, req.DstAddr, req.NatTo, req.Protocol); err != nil {
 		return nil, err
 	}
 	comment := sanitizeIfaceComment(req.Comment)
@@ -180,15 +181,16 @@ func (m *IfaceForwardingManager) EditRule(id string, req EditIfaceForwardRequest
 			}
 			// Add new rule with same ID
 			newRule := IfaceForwardRule{
-				ID:         id,
-				IifName:    req.IifName,
-				AddrFamily: req.AddrFamily,
-				DstAddr:    req.DstAddr,
-				NatTo:      req.NatTo,
-				Protocol:   req.Protocol,
-				Comment:    comment,
-				Enabled:    true,
-				Managed:    true,
+				ID:            id,
+				IifName:       req.IifName,
+				AddrFamily:    req.AddrFamily,
+				NatAddrFamily: req.NatAddrFamily,
+				DstAddr:       req.DstAddr,
+				NatTo:         req.NatTo,
+				Protocol:      req.Protocol,
+				Comment:       comment,
+				Enabled:       true,
+				Managed:       true,
 			}
 			stmt := m.buildRuleStatement(newRule)
 			if _, err := m.execNFT(strings.Fields(stmt)...); err != nil {
@@ -222,6 +224,7 @@ func (m *IfaceForwardingManager) editDisabledRule(id string, req EditIfaceForwar
 		if r.ID == id {
 			disabledRules[i].IifName = req.IifName
 			disabledRules[i].AddrFamily = req.AddrFamily
+			disabledRules[i].NatAddrFamily = req.NatAddrFamily
 			disabledRules[i].DstAddr = req.DstAddr
 			disabledRules[i].NatTo = req.NatTo
 			disabledRules[i].Protocol = req.Protocol
@@ -352,6 +355,11 @@ func (m *IfaceForwardingManager) buildRuleStatement(rule IfaceForwardRule) strin
 		nftComment += " " + rule.Comment
 	}
 
+	natFamily := rule.NatAddrFamily
+	if natFamily == "" {
+		natFamily = rule.AddrFamily
+	}
+
 	var parts []string
 	parts = append(parts, "add", "rule", "inet", IfaceForwardTableName, IfaceForwardChainName)
 	parts = append(parts, "iifname", fmt.Sprintf(`"%s"`, rule.IifName))
@@ -359,7 +367,7 @@ func (m *IfaceForwardingManager) buildRuleStatement(rule IfaceForwardRule) strin
 	if rule.Protocol != "all" {
 		parts = append(parts, "meta", "l4proto", rule.Protocol)
 	}
-	parts = append(parts, "dnat", rule.AddrFamily, "to", rule.NatTo)
+	parts = append(parts, "dnat", natFamily, "to", rule.NatTo)
 	parts = append(parts, "comment", fmt.Sprintf(`"%s"`, nftComment))
 	return strings.Join(parts, " ")
 }
@@ -448,8 +456,11 @@ func (m *IfaceForwardingManager) fillRuleFromExpr(rule *IfaceForwardRule, expr [
 			if addr, ok := dnat["addr"].(string); ok {
 				rule.NatTo = addr
 			}
-			if family, ok := dnat["family"].(string); ok && rule.AddrFamily == "" {
-				rule.AddrFamily = family
+			if family, ok := dnat["family"].(string); ok {
+				rule.NatAddrFamily = family
+				if rule.AddrFamily == "" {
+					rule.AddrFamily = family
+				}
 			}
 		}
 	}
@@ -507,7 +518,7 @@ func (m *IfaceForwardingManager) saveDisabledRules(rules []IfaceForwardRule) err
 }
 
 // validateIfaceForwardFields validates the fields of an iface forward rule.
-func validateIfaceForwardFields(iifName, addrFamily, dstAddr, natTo, protocol string) error {
+func validateIfaceForwardFields(iifName, addrFamily, natAddrFamily, dstAddr, natTo, protocol string) error {
 	if iifName == "" {
 		return fmt.Errorf("iif_name is required")
 	}
@@ -521,10 +532,16 @@ func validateIfaceForwardFields(iifName, addrFamily, dstAddr, natTo, protocol st
 	if addrFamily != "ip" && addrFamily != "ip6" {
 		return fmt.Errorf("addr_family must be 'ip' or 'ip6'")
 	}
+	effectiveNatFamily := natAddrFamily
+	if effectiveNatFamily == "" {
+		effectiveNatFamily = addrFamily
+	} else if effectiveNatFamily != "ip" && effectiveNatFamily != "ip6" {
+		return fmt.Errorf("nat_addr_family must be 'ip' or 'ip6'")
+	}
 	if err := validateAddrForFamily(dstAddr, addrFamily); err != nil {
 		return fmt.Errorf("dst_addr: %w", err)
 	}
-	if err := validateAddrForFamily(natTo, addrFamily); err != nil {
+	if err := validateAddrForFamily(natTo, effectiveNatFamily); err != nil {
 		return fmt.Errorf("nat_to: %w", err)
 	}
 	if protocol != "tcp" && protocol != "udp" && protocol != "all" {

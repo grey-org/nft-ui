@@ -296,9 +296,10 @@ type ConntrackResponse struct {
 type IfaceForwardRule struct {
 	ID         string `json:"id"`          // "ifwd_<8hex>"
 	IifName    string `json:"iif_name"`    // e.g. "eth0"
-	AddrFamily string `json:"addr_family"` // "ip" or "ip6"
-	DstAddr    string `json:"dst_addr"`    // destination address to match
-	NatTo      string `json:"nat_to"`      // DNAT target address
+	AddrFamily    string `json:"addr_family"`     // "ip" or "ip6" — inbound match
+	NatAddrFamily string `json:"nat_addr_family"` // "ip" or "ip6" — DNAT target family, empty = same as AddrFamily
+	DstAddr       string `json:"dst_addr"`        // destination address to match
+	NatTo         string `json:"nat_to"`          // DNAT target address
 	Protocol   string `json:"protocol"`   // "udp", "tcp", or "all"
 	Comment    string `json:"comment"`    // user comment
 	Enabled    bool   `json:"enabled"`
@@ -308,22 +309,24 @@ type IfaceForwardRule struct {
 
 // AddIfaceForwardRequest is the request body for adding an interface forwarding rule
 type AddIfaceForwardRequest struct {
-	IifName    string `json:"iif_name"`
-	AddrFamily string `json:"addr_family"`
-	DstAddr    string `json:"dst_addr"`
-	NatTo      string `json:"nat_to"`
-	Protocol   string `json:"protocol"`
-	Comment    string `json:"comment"`
+	IifName       string `json:"iif_name"`
+	AddrFamily    string `json:"addr_family"`
+	NatAddrFamily string `json:"nat_addr_family"`
+	DstAddr       string `json:"dst_addr"`
+	NatTo         string `json:"nat_to"`
+	Protocol      string `json:"protocol"`
+	Comment       string `json:"comment"`
 }
 
 // EditIfaceForwardRequest is the request body for editing an interface forwarding rule
 type EditIfaceForwardRequest struct {
-	IifName    string `json:"iif_name"`
-	AddrFamily string `json:"addr_family"`
-	DstAddr    string `json:"dst_addr"`
-	NatTo      string `json:"nat_to"`
-	Protocol   string `json:"protocol"`
-	Comment    string `json:"comment"`
+	IifName       string `json:"iif_name"`
+	AddrFamily    string `json:"addr_family"`
+	NatAddrFamily string `json:"nat_addr_family"`
+	DstAddr       string `json:"dst_addr"`
+	NatTo         string `json:"nat_to"`
+	Protocol      string `json:"protocol"`
+	Comment       string `json:"comment"`
 }
 
 // IfaceForwardingResponse is the API response for listing interface forwarding rules

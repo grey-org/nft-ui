@@ -169,12 +169,13 @@ export async function fetchIfaceForwardingRules() {
   return request('/iface-forwarding');
 }
 
-export async function addIfaceForwardingRule(iifName, addrFamily, dstAddr, natTo, protocol, comment) {
+export async function addIfaceForwardingRule(iifName, addrFamily, natAddrFamily, dstAddr, natTo, protocol, comment) {
   return request('/iface-forwarding', {
     method: 'POST',
     body: JSON.stringify({
       iif_name: iifName,
       addr_family: addrFamily,
+      nat_addr_family: natAddrFamily || '',
       dst_addr: dstAddr,
       nat_to: natTo,
       protocol,
@@ -183,12 +184,13 @@ export async function addIfaceForwardingRule(iifName, addrFamily, dstAddr, natTo
   });
 }
 
-export async function editIfaceForwardingRule(id, iifName, addrFamily, dstAddr, natTo, protocol, comment) {
+export async function editIfaceForwardingRule(id, iifName, addrFamily, natAddrFamily, dstAddr, natTo, protocol, comment) {
   return request(`/iface-forwarding/${encodeURIComponent(id)}`, {
     method: 'PUT',
     body: JSON.stringify({
       iif_name: iifName,
       addr_family: addrFamily,
+      nat_addr_family: natAddrFamily || '',
       dst_addr: dstAddr,
       nat_to: natTo,
       protocol,

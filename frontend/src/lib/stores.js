@@ -304,9 +304,9 @@ export async function loadIfaceForwardingRules() {
   }
 }
 
-export async function addIfaceForwardingRule(iifName, addrFamily, dstAddr, natTo, protocol, comment) {
+export async function addIfaceForwardingRule(iifName, addrFamily, natAddrFamily, dstAddr, natTo, protocol, comment) {
   try {
-    await apiAddIfaceForwarding(iifName, addrFamily, dstAddr, natTo, protocol, comment);
+    await apiAddIfaceForwarding(iifName, addrFamily, natAddrFamily, dstAddr, natTo, protocol, comment);
     success('Interface forwarding rule added');
     await loadIfaceForwardingRules();
   } catch (e) {
@@ -315,9 +315,9 @@ export async function addIfaceForwardingRule(iifName, addrFamily, dstAddr, natTo
   }
 }
 
-export async function editIfaceForwardingRule(id, iifName, addrFamily, dstAddr, natTo, protocol, comment) {
+export async function editIfaceForwardingRule(id, iifName, addrFamily, natAddrFamily, dstAddr, natTo, protocol, comment) {
   try {
-    await apiEditIfaceForwarding(id, iifName, addrFamily, dstAddr, natTo, protocol, comment);
+    await apiEditIfaceForwarding(id, iifName, addrFamily, natAddrFamily, dstAddr, natTo, protocol, comment);
     success('Interface forwarding rule updated');
     await loadIfaceForwardingRules();
   } catch (e) {

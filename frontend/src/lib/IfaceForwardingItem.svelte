@@ -64,7 +64,7 @@
   <td>
     <div class="flex items-center gap-2">
       <span style="font-size: 12px; color: var(--text);">{rule.iif_name}</span>
-      <span style="font-size: 9px; color: var(--text-dim);">{rule.addr_family}</span>
+      <span style="font-size: 9px; color: var(--text-dim);">{rule.addr_family}{#if rule.nat_addr_family && rule.nat_addr_family !== rule.addr_family}→{rule.nat_addr_family}{/if}</span>
     </div>
   </td>
   <td class="hidden md:table-cell">
@@ -113,7 +113,7 @@
         </div>
         <div class="flex gap-2 mb-1" style="font-size: 11px;">
           <span style="color: var(--text-muted);">addr family:</span>
-          <span style="color: var(--text);">{rule.addr_family}</span>
+          <span style="color: var(--text);">{rule.addr_family}{#if rule.nat_addr_family && rule.nat_addr_family !== rule.addr_family} → {rule.nat_addr_family}{/if}</span>
         </div>
         <div class="flex gap-2 mb-1" style="font-size: 11px;">
           <span style="color: var(--text-muted);">status:</span>
