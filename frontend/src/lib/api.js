@@ -84,7 +84,7 @@ export async function testForwardingTarget(dstIP, dstPort, protocol, timeoutMs =
   return request(`/forwarding/test?${params.toString()}`);
 }
 
-export async function addForwardingRule(srcPort, dstIP, dstPort, protocol, comment, limitMbps, mssMode, sourceNATMode, snatAddress) {
+export async function addForwardingRule(srcPort, dstIP, dstPort, protocol, comment, limitMbps, mssMode, sourceNATMode, snatAddress, addrFamily) {
   return request('/forwarding', {
     method: 'POST',
     body: JSON.stringify({
@@ -92,24 +92,24 @@ export async function addForwardingRule(srcPort, dstIP, dstPort, protocol, comme
       dst_ip: dstIP,
       dst_port: dstPort,
       protocol,
+      addr_family: addrFamily || 'ip',
       comment,
       limit_mbps: limitMbps || 0,
       mss_mode: mssMode || 'pmtu',
-      source_nat_mode: sourceNATMode || 'masquerade',
-      snat_address: sourceNATMode === 'snat' ? (snatAddress || '') : '',
       source_nat_mode: sourceNATMode || 'masquerade',
       snat_address: sourceNATMode === 'snat' ? (snatAddress || '') : '',
     }),
   });
 }
 
-export async function editForwardingRule(id, dstIP, dstPort, protocol, comment, limitMbps, mssMode, sourceNATMode, snatAddress) {
+export async function editForwardingRule(id, dstIP, dstPort, protocol, comment, limitMbps, mssMode, sourceNATMode, snatAddress, addrFamily) {
   return request(`/forwarding/${encodeURIComponent(id)}`, {
     method: 'PUT',
     body: JSON.stringify({
       dst_ip: dstIP,
       dst_port: dstPort,
       protocol,
+      addr_family: addrFamily || 'ip',
       comment,
       limit_mbps: limitMbps || 0,
       mss_mode: mssMode || 'pmtu',

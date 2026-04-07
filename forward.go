@@ -106,71 +106,101 @@ func (m *ForwardingManager) execNFTBatch(stmts []string) error {
 }
 
 // buildDNATStatement returns the nft statement string for a prerouting DNAT rule.
-func (m *ForwardingManager) buildDNATStatement(srcPort int, dstIP string, dstPort int, protocol string, comment string) string {
+func (m *ForwardingManager) buildDNATStatement(srcPort int, dstIP string, dstPort int, protocol string, comment string, addrFamily string) string {
+	family := normalizeAddrFamily(addrFamily)
+	var dnatTarget string
+	if family == "ip6" {
+		dnatTarget = fmt.Sprintf("[%s]:%d", dstIP, dstPort)
+	} else {
+		dnatTarget = fmt.Sprintf("%s:%d", dstIP, dstPort)
+	}
+	dnatKeyword := "to"
+	if family == "ip6" {
+		dnatKeyword = "ip6 to"
+	}
+	q := fmt.Sprintf(`"%s"`, comment)
 	var parts []string
 	switch protocol {
 	case "tcp":
 		parts = []string{
-			"add", "rule", "ip", "nat", "prerouting",
+			"add", "rule", family, "nat", "prerouting",
 			"tcp", "dport", strconv.Itoa(srcPort),
-			"dnat", "to", fmt.Sprintf("%s:%d", dstIP, dstPort),
-			"comment", fmt.Sprintf(`"%s"`, comment),
+			"dnat", dnatKeyword, dnatTarget,
+			"comment", q,
 		}
 	case "udp":
 		parts = []string{
-			"add", "rule", "ip", "nat", "prerouting",
+			"add", "rule", family, "nat", "prerouting",
 			"udp", "dport", strconv.Itoa(srcPort),
-			"dnat", "to", fmt.Sprintf("%s:%d", dstIP, dstPort),
-			"comment", fmt.Sprintf(`"%s"`, comment),
+			"dnat", dnatKeyword, dnatTarget,
+			"comment", q,
 		}
 	default: // "both"
 		parts = []string{
-			"add", "rule", "ip", "nat", "prerouting",
+			"add", "rule", family, "nat", "prerouting",
 			"meta", "l4proto", "{", "tcp,", "udp", "}",
 			"th", "dport", strconv.Itoa(srcPort),
-			"dnat", "to", fmt.Sprintf("%s:%d", dstIP, dstPort),
-			"comment", fmt.Sprintf(`"%s"`, comment),
+			"dnat", dnatKeyword, dnatTarget,
+			"comment", q,
 		}
 	}
 	return strings.Join(parts, " ")
 }
 
 // buildOutputDNATStatement returns the nft statement for the output-hook DNAT rule.
-func (m *ForwardingManager) buildOutputDNATStatement(srcPort int, dstIP string, dstPort int, protocol string, comment string) string {
+func (m *ForwardingManager) buildOutputDNATStatement(srcPort int, dstIP string, dstPort int, protocol string, comment string, addrFamily string) string {
+	family := normalizeAddrFamily(addrFamily)
+	var dnatTarget string
+	if family == "ip6" {
+		dnatTarget = fmt.Sprintf("[%s]:%d", dstIP, dstPort)
+	} else {
+		dnatTarget = fmt.Sprintf("%s:%d", dstIP, dstPort)
+	}
+	dnatKeyword := "to"
+	if family == "ip6" {
+		dnatKeyword = "ip6 to"
+	}
+	q := fmt.Sprintf(`"%s"`, comment)
 	var parts []string
 	switch protocol {
 	case "tcp":
 		parts = []string{
-			"add", "rule", "ip", "nat", "output",
+			"add", "rule", family, "nat", "output",
 			"tcp", "dport", strconv.Itoa(srcPort),
-			"dnat", "to", fmt.Sprintf("%s:%d", dstIP, dstPort),
-			"comment", fmt.Sprintf(`"%s"`, comment),
+			"dnat", dnatKeyword, dnatTarget,
+			"comment", q,
 		}
 	case "udp":
 		parts = []string{
-			"add", "rule", "ip", "nat", "output",
+			"add", "rule", family, "nat", "output",
 			"udp", "dport", strconv.Itoa(srcPort),
-			"dnat", "to", fmt.Sprintf("%s:%d", dstIP, dstPort),
-			"comment", fmt.Sprintf(`"%s"`, comment),
+			"dnat", dnatKeyword, dnatTarget,
+			"comment", q,
 		}
 	default: // "both"
 		parts = []string{
-			"add", "rule", "ip", "nat", "output",
+			"add", "rule", family, "nat", "output",
 			"meta", "l4proto", "{", "tcp,", "udp", "}",
 			"th", "dport", strconv.Itoa(srcPort),
-			"dnat", "to", fmt.Sprintf("%s:%d", dstIP, dstPort),
-			"comment", fmt.Sprintf(`"%s"`, comment),
+			"dnat", dnatKeyword, dnatTarget,
+			"comment", q,
 		}
 	}
 	return strings.Join(parts, " ")
 }
 
 // buildSourceNATStatement returns the nft statement for a postrouting source NAT rule.
-func (m *ForwardingManager) buildSourceNATStatement(dstIP string, dstPort int, protocol string, comment string, sourceNATMode string, snatAddress string) string {
+// For IPv6, sourceNATMode is always treated as masquerade (snat with static address is IPv4-only).
+func (m *ForwardingManager) buildSourceNATStatement(dstIP string, dstPort int, protocol string, comment string, sourceNATMode string, snatAddress string, addrFamily string) string {
+	family := normalizeAddrFamily(addrFamily)
+	addrKeyword := "ip"
+	if family == "ip6" {
+		addrKeyword = "ip6"
+	}
 	buildParts := func(protoArgs []string) []string {
-		args := []string{"add", "rule", "ip", "nat", "postrouting", "ip", "daddr", dstIP}
+		args := []string{"add", "rule", family, "nat", "postrouting", addrKeyword, "daddr", dstIP}
 		args = append(args, protoArgs...)
-		if sourceNATMode == SourceNATModeSNAT {
+		if family == "ip" && sourceNATMode == SourceNATModeSNAT {
 			args = append(args, "snat", "to", snatAddress)
 		} else {
 			args = append(args, "masquerade")
@@ -192,8 +222,12 @@ func (m *ForwardingManager) buildSourceNATStatement(dstIP string, dstPort int, p
 
 // buildRouteMarkStatements returns the nft statements that tag forwarded traffic
 // with an fwmark so policy routing keeps it on the main routing table.
-func (m *ForwardingManager) buildRouteMarkStatements(srcPort int, protocol string, comment string) []string {
+// IPv6 rules are skipped (ip mangle is IPv4-only).
+func (m *ForwardingManager) buildRouteMarkStatements(srcPort int, protocol string, comment string, addrFamily string) []string {
 	if !m.forwardBypassEnabled() {
+		return nil
+	}
+	if normalizeAddrFamily(addrFamily) == "ip6" {
 		return nil
 	}
 	mark := m.forwardBypassMarkValue()
@@ -230,7 +264,7 @@ func (m *ForwardingManager) buildRouteMarkStatements(srcPort int, protocol strin
 
 // buildForwardLimitStatements returns nft statements for bidirectional bandwidth
 // limit rules in the managed filter forward chain. Returns nil when limitMbps==0.
-func (m *ForwardingManager) buildForwardLimitStatements(dstIP string, dstPort int, protocol string, comment string, limitMbps int) []string {
+func (m *ForwardingManager) buildForwardLimitStatements(dstIP string, dstPort int, protocol string, comment string, limitMbps int, addrFamily string) []string {
 	if limitMbps <= 0 {
 		return nil
 	}
@@ -238,38 +272,42 @@ func (m *ForwardingManager) buildForwardLimitStatements(dstIP string, dstPort in
 	family, table, chain := m.managedForwardChainRef()
 	rate := strconv.Itoa(limitKbytes)
 	q := fmt.Sprintf(`"%s"`, comment)
+	addrKeyword := "ip"
+	if normalizeAddrFamily(addrFamily) == "ip6" {
+		addrKeyword = "ip6"
+	}
 	var stmts []string
 	switch protocol {
 	case "tcp":
 		stmts = append(stmts,
 			strings.Join([]string{"add", "rule", family, table, chain,
-				"ip", "daddr", dstIP, "tcp", "dport", strconv.Itoa(dstPort),
+				addrKeyword, "daddr", dstIP, "tcp", "dport", strconv.Itoa(dstPort),
 				"limit", "rate", "over", rate, "kbytes/second",
 				"drop", "comment", q}, " "),
 			strings.Join([]string{"add", "rule", family, table, chain,
-				"ip", "saddr", dstIP, "tcp", "sport", strconv.Itoa(dstPort),
+				addrKeyword, "saddr", dstIP, "tcp", "sport", strconv.Itoa(dstPort),
 				"limit", "rate", "over", rate, "kbytes/second",
 				"drop", "comment", q}, " "),
 		)
 	case "udp":
 		stmts = append(stmts,
 			strings.Join([]string{"add", "rule", family, table, chain,
-				"ip", "daddr", dstIP, "udp", "dport", strconv.Itoa(dstPort),
+				addrKeyword, "daddr", dstIP, "udp", "dport", strconv.Itoa(dstPort),
 				"limit", "rate", "over", rate, "kbytes/second",
 				"drop", "comment", q}, " "),
 			strings.Join([]string{"add", "rule", family, table, chain,
-				"ip", "saddr", dstIP, "udp", "sport", strconv.Itoa(dstPort),
+				addrKeyword, "saddr", dstIP, "udp", "sport", strconv.Itoa(dstPort),
 				"limit", "rate", "over", rate, "kbytes/second",
 				"drop", "comment", q}, " "),
 		)
 	default: // "both"
 		stmts = append(stmts,
 			strings.Join([]string{"add", "rule", family, table, chain,
-				"ip", "daddr", dstIP, "meta", "l4proto", "{", "tcp,", "udp", "}", "th", "dport", strconv.Itoa(dstPort),
+				addrKeyword, "daddr", dstIP, "meta", "l4proto", "{", "tcp,", "udp", "}", "th", "dport", strconv.Itoa(dstPort),
 				"limit", "rate", "over", rate, "kbytes/second",
 				"drop", "comment", q}, " "),
 			strings.Join([]string{"add", "rule", family, table, chain,
-				"ip", "saddr", dstIP, "meta", "l4proto", "{", "tcp,", "udp", "}", "th", "sport", strconv.Itoa(dstPort),
+				addrKeyword, "saddr", dstIP, "meta", "l4proto", "{", "tcp,", "udp", "}", "th", "sport", strconv.Itoa(dstPort),
 				"limit", "rate", "over", rate, "kbytes/second",
 				"drop", "comment", q}, " "),
 		)
@@ -279,39 +317,43 @@ func (m *ForwardingManager) buildForwardLimitStatements(dstIP string, dstPort in
 
 // buildForwardAcceptStatements returns nft statements for bidirectional accept
 // rules in the managed filter forward chain.
-func (m *ForwardingManager) buildForwardAcceptStatements(dstIP string, dstPort int, protocol string, comment string) []string {
+func (m *ForwardingManager) buildForwardAcceptStatements(dstIP string, dstPort int, protocol string, comment string, addrFamily string) []string {
 	family, table, chain := m.managedForwardChainRef()
 	q := fmt.Sprintf(`"%s"`, comment)
 	dst := strconv.Itoa(dstPort)
+	addrKeyword := "ip"
+	if normalizeAddrFamily(addrFamily) == "ip6" {
+		addrKeyword = "ip6"
+	}
 	var stmts []string
 	switch protocol {
 	case "tcp":
 		stmts = []string{
 			strings.Join([]string{"add", "rule", family, table, chain,
-				"ip", "daddr", dstIP, "tcp", "dport", dst,
+				addrKeyword, "daddr", dstIP, "tcp", "dport", dst,
 				"accept", "comment", q}, " "),
 			strings.Join([]string{"add", "rule", family, table, chain,
-				"ip", "saddr", dstIP, "tcp", "sport", dst,
+				addrKeyword, "saddr", dstIP, "tcp", "sport", dst,
 				"ct", "state", "established,related",
 				"accept", "comment", q}, " "),
 		}
 	case "udp":
 		stmts = []string{
 			strings.Join([]string{"add", "rule", family, table, chain,
-				"ip", "daddr", dstIP, "udp", "dport", dst,
+				addrKeyword, "daddr", dstIP, "udp", "dport", dst,
 				"accept", "comment", q}, " "),
 			strings.Join([]string{"add", "rule", family, table, chain,
-				"ip", "saddr", dstIP, "udp", "sport", dst,
+				addrKeyword, "saddr", dstIP, "udp", "sport", dst,
 				"ct", "state", "established,related",
 				"accept", "comment", q}, " "),
 		}
 	default: // "both"
 		stmts = []string{
 			strings.Join([]string{"add", "rule", family, table, chain,
-				"ip", "daddr", dstIP, "meta", "l4proto", "{", "tcp,", "udp", "}", "th", "dport", dst,
+				addrKeyword, "daddr", dstIP, "meta", "l4proto", "{", "tcp,", "udp", "}", "th", "dport", dst,
 				"accept", "comment", q}, " "),
 			strings.Join([]string{"add", "rule", family, table, chain,
-				"ip", "saddr", dstIP, "meta", "l4proto", "{", "tcp,", "udp", "}", "th", "sport", dst,
+				addrKeyword, "saddr", dstIP, "meta", "l4proto", "{", "tcp,", "udp", "}", "th", "sport", dst,
 				"ct", "state", "established,related",
 				"accept", "comment", q}, " "),
 		}
@@ -320,10 +362,13 @@ func (m *ForwardingManager) buildForwardAcceptStatements(dstIP string, dstPort i
 }
 
 // buildMSSClampStatements returns nft statements for bidirectional TCP MSS
-// clamping in the legacy ip filter forward chain.
-func (m *ForwardingManager) buildMSSClampStatements(dstIP string, dstPort int, protocol string, comment string, mode string) []string {
+// clamping in the legacy ip filter forward chain. IPv6 is not supported here.
+func (m *ForwardingManager) buildMSSClampStatements(dstIP string, dstPort int, protocol string, comment string, mode string, addrFamily string) []string {
 	mode = normalizeMSSMode(mode)
 	if mode == "" || mode == MSSModeDisabled || protocol == "udp" {
+		return nil
+	}
+	if normalizeAddrFamily(addrFamily) == "ip6" {
 		return nil
 	}
 	q := fmt.Sprintf(`"%s"`, comment)
@@ -355,16 +400,16 @@ func (m *ForwardingManager) buildMSSClampStatements(dstIP string, dstPort int, p
 func (m *ForwardingManager) buildForwardRuleStatements(
 	srcPort int, dstIP string, dstPort int, protocol string,
 	comment string, limitMbps int, mssMode string,
-	sourceNATMode string, snatAddress string,
+	sourceNATMode string, snatAddress string, addrFamily string,
 ) []string {
 	var stmts []string
-	stmts = append(stmts, m.buildDNATStatement(srcPort, dstIP, dstPort, protocol, comment))
-	stmts = append(stmts, m.buildSourceNATStatement(dstIP, dstPort, protocol, comment, sourceNATMode, snatAddress))
-	stmts = append(stmts, m.buildOutputDNATStatement(srcPort, dstIP, dstPort, protocol, comment))
-	stmts = append(stmts, m.buildRouteMarkStatements(srcPort, protocol, comment)...)
-	stmts = append(stmts, m.buildForwardLimitStatements(dstIP, dstPort, protocol, comment, limitMbps)...)
-	stmts = append(stmts, m.buildForwardAcceptStatements(dstIP, dstPort, protocol, comment)...)
-	stmts = append(stmts, m.buildMSSClampStatements(dstIP, dstPort, protocol, comment, mssMode)...)
+	stmts = append(stmts, m.buildDNATStatement(srcPort, dstIP, dstPort, protocol, comment, addrFamily))
+	stmts = append(stmts, m.buildSourceNATStatement(dstIP, dstPort, protocol, comment, sourceNATMode, snatAddress, addrFamily))
+	stmts = append(stmts, m.buildOutputDNATStatement(srcPort, dstIP, dstPort, protocol, comment, addrFamily))
+	stmts = append(stmts, m.buildRouteMarkStatements(srcPort, protocol, comment, addrFamily)...)
+	stmts = append(stmts, m.buildForwardLimitStatements(dstIP, dstPort, protocol, comment, limitMbps, addrFamily)...)
+	stmts = append(stmts, m.buildForwardAcceptStatements(dstIP, dstPort, protocol, comment, addrFamily)...)
+	stmts = append(stmts, m.buildMSSClampStatements(dstIP, dstPort, protocol, comment, mssMode, addrFamily)...)
 	return stmts
 }
 
@@ -397,6 +442,38 @@ func (m *ForwardingManager) EnsureFilterForwardSetup() error {
 		}
 	}
 
+	return nil
+}
+
+// EnsureIP6NatSetup ensures the ip6 nat table and required chains exist
+func (m *ForwardingManager) EnsureIP6NatSetup() error {
+	_, err := m.execNFT("list", "table", "ip6", "nat")
+	if err != nil {
+		if _, err := m.execNFT("add", "table", "ip6", "nat"); err != nil {
+			return fmt.Errorf("failed to create ip6 nat table: %w", err)
+		}
+	}
+	_, err = m.execNFT("list", "chain", "ip6", "nat", "prerouting")
+	if err != nil {
+		if _, err := m.execNFT("add", "chain", "ip6", "nat", "prerouting",
+			"{ type nat hook prerouting priority -100 ; policy accept ; }"); err != nil {
+			return fmt.Errorf("failed to create ip6 nat prerouting chain: %w", err)
+		}
+	}
+	_, err = m.execNFT("list", "chain", "ip6", "nat", "postrouting")
+	if err != nil {
+		if _, err := m.execNFT("add", "chain", "ip6", "nat", "postrouting",
+			"{ type nat hook postrouting priority 100 ; policy accept ; }"); err != nil {
+			return fmt.Errorf("failed to create ip6 nat postrouting chain: %w", err)
+		}
+	}
+	_, err = m.execNFT("list", "chain", "ip6", "nat", "output")
+	if err != nil {
+		if _, err := m.execNFT("add", "chain", "ip6", "nat", "output",
+			"{ type nat hook output priority -100 ; policy accept ; }"); err != nil {
+			return fmt.Errorf("failed to create ip6 nat output chain: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -655,7 +732,7 @@ func (m *ForwardingManager) SyncForwardBypassRules() error {
 		return nil
 	}
 
-	rules, err := m.parseForwardingRules(preOutput, postOutput)
+	rules, err := m.parseForwardingRules(preOutput, postOutput, "ip")
 	if err != nil {
 		return err
 	}
@@ -686,35 +763,44 @@ func (m *ForwardingManager) ListForwardingRules() ([]ForwardingRule, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	// Ensure nat table exists
+	// Ensure ip nat table exists (ip6 is optional)
 	if err := m.EnsureNatSetup(); err != nil {
 		return nil, err
 	}
 
-	// Get prerouting rules (DNAT)
-	preOutput, err := m.execNFT("-j", "-a", "list", "chain", "ip", "nat", "prerouting")
-	if err != nil {
-		return nil, fmt.Errorf("failed to list prerouting chain: %w", err)
+	var enabledRules []ForwardingRule
+
+	for _, fam := range []string{"ip", "ip6"} {
+		preOutput, err := m.execNFT("-j", "-a", "list", "chain", fam, "nat", "prerouting")
+		if err != nil {
+			continue // ip6 nat may not exist yet
+		}
+		postOutput, _ := m.execNFT("-j", "-a", "list", "chain", fam, "nat", "postrouting")
+
+		famRules, err := m.parseForwardingRules(preOutput, postOutput, fam)
+		if err != nil {
+			continue
+		}
+
+		// Get source NAT information for this family
+		sourceNATMap := m.extractSourceNATFromPostrouting(postOutput)
+		for i := range famRules {
+			if natInfo, ok := sourceNATMap[famRules[i].SrcPort]; ok {
+				famRules[i].SourceNATMode = natInfo.Mode
+				famRules[i].SNATAddress = natInfo.Address
+			} else if famRules[i].Managed {
+				famRules[i].SourceNATMode = SourceNATModeMasquerade
+			}
+		}
+
+		enabledRules = append(enabledRules, famRules...)
 	}
 
-	// Get postrouting rules (MASQUERADE)
-	postOutput, err := m.execNFT("-j", "-a", "list", "chain", "ip", "nat", "postrouting")
-	if err != nil {
-		return nil, fmt.Errorf("failed to list postrouting chain: %w", err)
-	}
-
-	// Parse enabled rules from nftables
-	enabledRules, err := m.parseForwardingRules(preOutput, postOutput)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get limit, MSS, and source NAT information
+	// Get limit and MSS information (family-agnostic, keyed by srcPort)
 	limitMap := m.extractLimitsFromForwardChain()
 	mssModeMap := m.extractMSSModesFromForwardChain()
-	sourceNATMap := m.extractSourceNATFromPostrouting(postOutput)
 
-	// Apply limits, MSS modes, and source NAT settings to enabled rules
+	// Apply limits and MSS modes to enabled rules
 	for i := range enabledRules {
 		if limit, ok := limitMap[enabledRules[i].SrcPort]; ok {
 			enabledRules[i].LimitMbps = limit
@@ -724,18 +810,11 @@ func (m *ForwardingManager) ListForwardingRules() ([]ForwardingRule, error) {
 		} else if enabledRules[i].Managed {
 			enabledRules[i].MSSMode = MSSModePMTU
 		}
-		if natInfo, ok := sourceNATMap[enabledRules[i].SrcPort]; ok {
-			enabledRules[i].SourceNATMode = natInfo.Mode
-			enabledRules[i].SNATAddress = natInfo.Address
-		} else if enabledRules[i].Managed {
-			enabledRules[i].SourceNATMode = SourceNATModeMasquerade
-		}
 	}
 
 	// Load disabled rules from file
 	disabledRules, err := m.loadDisabledRules()
 	if err != nil {
-		// If file doesn't exist, that's fine
 		disabledRules = []ForwardingRule{}
 	}
 
@@ -941,7 +1020,7 @@ func (m *ForwardingManager) ReconcileManagedForwardingRules() error {
 		return nil
 	}
 
-	rules, err := m.parseForwardingRules(preOutput, postOutput)
+	rules, err := m.parseForwardingRules(preOutput, postOutput, "ip")
 	if err != nil {
 		return err
 	}
@@ -1014,7 +1093,7 @@ func (m *ForwardingManager) ReconcileMSSClampRules() error {
 		return nil
 	}
 
-	rules, err := m.parseForwardingRules(preOutput, postOutput)
+	rules, err := m.parseForwardingRules(preOutput, postOutput, "ip")
 	if err != nil {
 		return err
 	}
@@ -1074,8 +1153,23 @@ func (m *ForwardingManager) ReconcileMSSClampRules() error {
 	return nil
 }
 
+// listAllEnabledRules returns all enabled forwarding rules from both ip and ip6 nat chains.
+func (m *ForwardingManager) listAllEnabledRules() ([]ForwardingRule, error) {
+	var all []ForwardingRule
+	for _, fam := range []string{"ip", "ip6"} {
+		preOutput, err := m.execNFT("-j", "-a", "list", "chain", fam, "nat", "prerouting")
+		if err != nil {
+			continue // chain/table may not exist yet
+		}
+		postOutput, _ := m.execNFT("-j", "-a", "list", "chain", fam, "nat", "postrouting")
+		rules, _ := m.parseForwardingRules(preOutput, postOutput, fam)
+		all = append(all, rules...)
+	}
+	return all, nil
+}
+
 // parseForwardingRules parses JSON output from prerouting and postrouting chains
-func (m *ForwardingManager) parseForwardingRules(preData, postData []byte) ([]ForwardingRule, error) {
+func (m *ForwardingManager) parseForwardingRules(preData, postData []byte, addrFamily string) ([]ForwardingRule, error) {
 	var preRuleset, postRuleset NFTRuleset
 	if err := json.Unmarshal(preData, &preRuleset); err != nil {
 		return nil, fmt.Errorf("failed to parse prerouting JSON: %w", err)
@@ -1110,6 +1204,7 @@ func (m *ForwardingManager) parseForwardingRules(preData, postData []byte) ([]Fo
 		if rule != nil {
 			rule.Enabled = true
 			rule.PreHandle = obj.Rule.Handle
+			rule.AddrFamily = addrFamily
 
 			// Check if this is a managed rule (has our comment)
 			if strings.HasPrefix(obj.Rule.Comment, ForwardingComment) {
@@ -1256,9 +1351,11 @@ func (m *ForwardingManager) extractForwardingRule(rule *NFTRule) *ForwardingRule
 }
 
 // AddForwardingRule adds a new port forwarding rule
-func (m *ForwardingManager) AddForwardingRule(srcPort int, dstIP string, dstPort int, protocol string, comment string, limitMbps int, mssMode string, sourceNATMode string, snatAddress string) error {
+func (m *ForwardingManager) AddForwardingRule(srcPort int, dstIP string, dstPort int, protocol string, comment string, limitMbps int, mssMode string, sourceNATMode string, snatAddress string, addrFamily string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	addrFamily = normalizeAddrFamily(addrFamily)
 
 	// Validate inputs
 	if srcPort < 1 || srcPort > 65535 {
@@ -1267,8 +1364,14 @@ func (m *ForwardingManager) AddForwardingRule(srcPort int, dstIP string, dstPort
 	if dstPort < 1 || dstPort > 65535 {
 		return fmt.Errorf("invalid destination port: %d", dstPort)
 	}
-	if !isValidIPv4(dstIP) {
-		return fmt.Errorf("invalid destination IP: %s", dstIP)
+	if addrFamily == "ip6" {
+		if !isValidIPv6(dstIP) {
+			return fmt.Errorf("invalid destination IPv6 address: %s", dstIP)
+		}
+	} else {
+		if !isValidIPv4(dstIP) {
+			return fmt.Errorf("invalid destination IP: %s", dstIP)
+		}
 	}
 	if protocol != "tcp" && protocol != "udp" && protocol != "both" {
 		return fmt.Errorf("invalid protocol: %s", protocol)
@@ -1278,14 +1381,18 @@ func (m *ForwardingManager) AddForwardingRule(srcPort int, dstIP string, dstPort
 	comment = sanitizeComment(comment)
 
 	// Ensure nat table exists
-	if err := m.EnsureNatSetup(); err != nil {
-		return err
+	if addrFamily == "ip6" {
+		if err := m.EnsureIP6NatSetup(); err != nil {
+			return err
+		}
+	} else {
+		if err := m.EnsureNatSetup(); err != nil {
+			return err
+		}
 	}
 
-	// Check for duplicate source port
-	preOutput, _ := m.execNFT("-j", "-a", "list", "chain", "ip", "nat", "prerouting")
-	postOutput, _ := m.execNFT("-j", "-a", "list", "chain", "ip", "nat", "postrouting")
-	existingRules, _ := m.parseForwardingRules(preOutput, postOutput)
+	// Check for duplicate source port across all families
+	existingRules, _ := m.listAllEnabledRules()
 	for _, r := range existingRules {
 		if r.SrcPort == srcPort {
 			return fmt.Errorf("source port %d is already in use", srcPort)
@@ -1312,7 +1419,7 @@ func (m *ForwardingManager) AddForwardingRule(srcPort int, dstIP string, dstPort
 	if sourceNATMode == "" {
 		return fmt.Errorf("invalid source NAT mode: %s", sourceNATMode)
 	}
-	if sourceNATMode == SourceNATModeSNAT {
+	if addrFamily == "ip" && sourceNATMode == SourceNATModeSNAT {
 		if !isValidIPv4(snatAddress) {
 			return fmt.Errorf("invalid SNAT address: %s", snatAddress)
 		}
@@ -1327,7 +1434,7 @@ func (m *ForwardingManager) AddForwardingRule(srcPort int, dstIP string, dstPort
 	}
 
 	// Ensure all dependent chains exist before the atomic batch.
-	if m.forwardBypassEnabled() {
+	if addrFamily == "ip" && m.forwardBypassEnabled() {
 		if err := m.EnsureForwardBypassSetup(); err != nil {
 			return fmt.Errorf("failed to ensure bypass setup: %w", err)
 		}
@@ -1335,7 +1442,7 @@ func (m *ForwardingManager) AddForwardingRule(srcPort int, dstIP string, dstPort
 	if err := m.EnsureFilterForwardSetup(); err != nil {
 		return fmt.Errorf("failed to ensure filter forward setup: %w", err)
 	}
-	mssNeeded := normalizeMSSMode(mssMode) != MSSModeDisabled && protocol != "udp"
+	mssNeeded := addrFamily == "ip" && normalizeMSSMode(mssMode) != MSSModeDisabled && protocol != "udp"
 	if mssNeeded {
 		if err := m.EnsureLegacyMSSForwardSetup(); err != nil {
 			return fmt.Errorf("failed to ensure MSS forward setup: %w", err)
@@ -1344,7 +1451,7 @@ func (m *ForwardingManager) AddForwardingRule(srcPort int, dstIP string, dstPort
 
 	// Apply all rules as a single atomic nft batch transaction.
 	// If any statement fails the entire batch is rolled back by nftables.
-	stmts := m.buildForwardRuleStatements(srcPort, dstIP, dstPort, protocol, fullComment, limitMbps, mssMode, sourceNATMode, snatAddress)
+	stmts := m.buildForwardRuleStatements(srcPort, dstIP, dstPort, protocol, fullComment, limitMbps, mssMode, sourceNATMode, snatAddress, addrFamily)
 	if err := m.execNFTBatch(stmts); err != nil {
 		return fmt.Errorf("failed to apply forwarding rules: %w", err)
 	}
@@ -1946,9 +2053,11 @@ func (m *ForwardingManager) DeleteForwardingRule(id string) error {
 }
 
 // EditForwardingRule modifies an existing forwarding rule
-func (m *ForwardingManager) EditForwardingRule(id string, dstIP string, dstPort int, protocol string, comment string, limitMbps int, mssMode string, sourceNATMode string, snatAddress string) error {
+func (m *ForwardingManager) EditForwardingRule(id string, dstIP string, dstPort int, protocol string, comment string, limitMbps int, mssMode string, sourceNATMode string, snatAddress string, addrFamily string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	addrFamily = normalizeAddrFamily(addrFamily)
 
 	// Parse source port from ID
 	srcPort, err := m.parseSrcPortFromID(id)
@@ -1960,8 +2069,14 @@ func (m *ForwardingManager) EditForwardingRule(id string, dstIP string, dstPort 
 	if dstPort < 1 || dstPort > 65535 {
 		return fmt.Errorf("invalid destination port: %d", dstPort)
 	}
-	if !isValidIPv4(dstIP) {
-		return fmt.Errorf("invalid destination IP: %s", dstIP)
+	if addrFamily == "ip6" {
+		if !isValidIPv6(dstIP) {
+			return fmt.Errorf("invalid destination IPv6 address: %s", dstIP)
+		}
+	} else {
+		if !isValidIPv4(dstIP) {
+			return fmt.Errorf("invalid destination IP: %s", dstIP)
+		}
 	}
 	if protocol != "tcp" && protocol != "udp" && protocol != "both" {
 		return fmt.Errorf("invalid protocol: %s", protocol)
@@ -1977,7 +2092,7 @@ func (m *ForwardingManager) EditForwardingRule(id string, dstIP string, dstPort 
 	if sourceNATMode == "" {
 		return fmt.Errorf("invalid source NAT mode: %s", sourceNATMode)
 	}
-	if sourceNATMode == SourceNATModeSNAT {
+	if addrFamily == "ip" && sourceNATMode == SourceNATModeSNAT {
 		if !isValidIPv4(snatAddress) {
 			return fmt.Errorf("invalid SNAT address: %s", snatAddress)
 		}
@@ -1995,6 +2110,7 @@ func (m *ForwardingManager) EditForwardingRule(id string, dstIP string, dstPort 
 			disabledRules[i].DstIP = dstIP
 			disabledRules[i].DstPort = dstPort
 			disabledRules[i].Protocol = protocol
+			disabledRules[i].AddrFamily = addrFamily
 			disabledRules[i].Comment = comment
 			disabledRules[i].LimitMbps = limitMbps
 			disabledRules[i].MSSMode = mssMode
@@ -2019,8 +2135,19 @@ func (m *ForwardingManager) EditForwardingRule(id string, dstIP string, dstPort 
 		fullComment = fmt.Sprintf("%s %s", fullComment, comment)
 	}
 
+	// Ensure nat table for the target family exists
+	if addrFamily == "ip6" {
+		if err := m.EnsureIP6NatSetup(); err != nil {
+			return fmt.Errorf("failed to ensure ip6 nat setup: %w", err)
+		}
+	} else {
+		if err := m.EnsureNatSetup(); err != nil {
+			return fmt.Errorf("failed to ensure nat setup: %w", err)
+		}
+	}
+
 	// Ensure dependent chains exist, then recreate rules atomically.
-	if m.forwardBypassEnabled() {
+	if addrFamily == "ip" && m.forwardBypassEnabled() {
 		if err := m.EnsureForwardBypassSetup(); err != nil {
 			return fmt.Errorf("failed to ensure bypass setup: %w", err)
 		}
@@ -2028,13 +2155,13 @@ func (m *ForwardingManager) EditForwardingRule(id string, dstIP string, dstPort 
 	if err := m.EnsureFilterForwardSetup(); err != nil {
 		return fmt.Errorf("failed to ensure filter forward setup: %w", err)
 	}
-	if normalizeMSSMode(mssMode) != MSSModeDisabled && protocol != "udp" {
+	if addrFamily == "ip" && normalizeMSSMode(mssMode) != MSSModeDisabled && protocol != "udp" {
 		if err := m.EnsureLegacyMSSForwardSetup(); err != nil {
 			return fmt.Errorf("failed to ensure MSS forward setup: %w", err)
 		}
 	}
 
-	stmts := m.buildForwardRuleStatements(srcPort, dstIP, dstPort, protocol, fullComment, limitMbps, mssMode, sourceNATMode, snatAddress)
+	stmts := m.buildForwardRuleStatements(srcPort, dstIP, dstPort, protocol, fullComment, limitMbps, mssMode, sourceNATMode, snatAddress, addrFamily)
 	if err := m.execNFTBatch(stmts); err != nil {
 		return fmt.Errorf("failed to apply forwarding rules: %w", err)
 	}
@@ -2072,9 +2199,17 @@ func (m *ForwardingManager) EnableForwardingRule(id string) error {
 		return fmt.Errorf("disabled rule not found: %s", id)
 	}
 
-	// Ensure nat table exists
-	if err := m.EnsureNatSetup(); err != nil {
-		return err
+	ruleFamily := normalizeAddrFamily(rule.AddrFamily)
+
+	// Ensure nat table exists for the rule's family
+	if ruleFamily == "ip6" {
+		if err := m.EnsureIP6NatSetup(); err != nil {
+			return err
+		}
+	} else {
+		if err := m.EnsureNatSetup(); err != nil {
+			return err
+		}
 	}
 
 	// Build comment string
@@ -2084,7 +2219,7 @@ func (m *ForwardingManager) EnableForwardingRule(id string) error {
 	}
 
 	// Ensure dependent chains exist, then activate rules atomically.
-	if m.forwardBypassEnabled() {
+	if ruleFamily == "ip" && m.forwardBypassEnabled() {
 		if err := m.EnsureForwardBypassSetup(); err != nil {
 			return fmt.Errorf("failed to ensure bypass setup: %w", err)
 		}
@@ -2092,13 +2227,13 @@ func (m *ForwardingManager) EnableForwardingRule(id string) error {
 	if err := m.EnsureFilterForwardSetup(); err != nil {
 		return fmt.Errorf("failed to ensure filter forward setup: %w", err)
 	}
-	if normalizeMSSMode(rule.MSSMode) != MSSModeDisabled && rule.Protocol != "udp" {
+	if ruleFamily == "ip" && normalizeMSSMode(rule.MSSMode) != MSSModeDisabled && rule.Protocol != "udp" {
 		if err := m.EnsureLegacyMSSForwardSetup(); err != nil {
 			return fmt.Errorf("failed to ensure MSS forward setup: %w", err)
 		}
 	}
 
-	stmts := m.buildForwardRuleStatements(rule.SrcPort, rule.DstIP, rule.DstPort, rule.Protocol, fullComment, rule.LimitMbps, rule.MSSMode, rule.SourceNATMode, rule.SNATAddress)
+	stmts := m.buildForwardRuleStatements(rule.SrcPort, rule.DstIP, rule.DstPort, rule.Protocol, fullComment, rule.LimitMbps, rule.MSSMode, rule.SourceNATMode, rule.SNATAddress, ruleFamily)
 	if err := m.execNFTBatch(stmts); err != nil {
 		return fmt.Errorf("failed to apply forwarding rules: %w", err)
 	}
@@ -2118,17 +2253,14 @@ func (m *ForwardingManager) DisableForwardingRule(id string) error {
 		return err
 	}
 
-	// Get current enabled rules
-	preOutput, _ := m.execNFT("-j", "-a", "list", "chain", "ip", "nat", "prerouting")
-	postOutput, _ := m.execNFT("-j", "-a", "list", "chain", "ip", "nat", "postrouting")
-	enabledRules, err := m.parseForwardingRules(preOutput, postOutput)
+	// Get current enabled rules from both ip and ip6 families
+	enabledRules, err := m.listAllEnabledRules()
 	if err != nil {
 		return err
 	}
 
 	limitMap := m.extractLimitsFromForwardChain()
 	mssModeMap := m.extractMSSModesFromForwardChain()
-	sourceNATMap := m.extractSourceNATFromPostrouting(postOutput)
 	for i := range enabledRules {
 		if limit, ok := limitMap[enabledRules[i].SrcPort]; ok {
 			enabledRules[i].LimitMbps = limit
@@ -2138,6 +2270,9 @@ func (m *ForwardingManager) DisableForwardingRule(id string) error {
 		} else if enabledRules[i].Managed {
 			enabledRules[i].MSSMode = MSSModePMTU
 		}
+		fam := normalizeAddrFamily(enabledRules[i].AddrFamily)
+		postOutput, _ := m.execNFT("-j", "-a", "list", "chain", fam, "nat", "postrouting")
+		sourceNATMap := m.extractSourceNATFromPostrouting(postOutput)
 		if natInfo, ok := sourceNATMap[enabledRules[i].SrcPort]; ok {
 			enabledRules[i].SourceNATMode = natInfo.Mode
 			enabledRules[i].SNATAddress = natInfo.Address
@@ -2159,7 +2294,7 @@ func (m *ForwardingManager) DisableForwardingRule(id string) error {
 		return fmt.Errorf("enabled rule not found: %s", id)
 	}
 
-	// Delete from nftables
+	// Delete from nftables (tries both ip and ip6)
 	if err := m.deleteDNATRuleBySrcPort(srcPort); err != nil {
 		return fmt.Errorf("failed to delete DNAT rule: %w", err)
 	}
@@ -2177,6 +2312,7 @@ func (m *ForwardingManager) DisableForwardingRule(id string) error {
 		DstIP:         rule.DstIP,
 		DstPort:       rule.DstPort,
 		Protocol:      rule.Protocol,
+		AddrFamily:    rule.AddrFamily,
 		Enabled:       false,
 		Comment:       rule.Comment,
 		LimitMbps:     rule.LimitMbps,
@@ -2202,76 +2338,54 @@ func (m *ForwardingManager) parseSrcPortFromID(id string) (int, error) {
 	return port, nil
 }
 
-func (m *ForwardingManager) deleteDNATRuleBySrcPort(srcPort int) error {
-	output, err := m.execNFT("-j", "-a", "list", "chain", "ip", "nat", "prerouting")
+// deleteNatChainRule deletes the first rule with the forwarding comment for srcPort
+// in the given family/table/chain. Returns true if found and deleted.
+func (m *ForwardingManager) deleteNatChainRule(srcPort int, family, table, chain string) bool {
+	output, err := m.execNFT("-j", "-a", "list", "chain", family, table, chain)
 	if err != nil {
-		return err
+		return false
 	}
-
 	var ruleset NFTRuleset
 	if err := json.Unmarshal(output, &ruleset); err != nil {
-		return err
+		return false
 	}
-
+	prefix := fmt.Sprintf("%s %d", ForwardingComment, srcPort)
 	for _, obj := range ruleset.NFTables {
-		if obj.Rule == nil || obj.Rule.Chain != "prerouting" {
+		if obj.Rule == nil || obj.Rule.Chain != chain {
 			continue
 		}
-		if strings.HasPrefix(obj.Rule.Comment, fmt.Sprintf("%s %d", ForwardingComment, srcPort)) {
-			_, err := m.execNFT("delete", "rule", "ip", "nat", "prerouting", "handle", strconv.FormatInt(obj.Rule.Handle, 10))
-			return err
+		if strings.HasPrefix(obj.Rule.Comment, prefix) {
+			m.execNFT("delete", "rule", family, table, chain, "handle", strconv.FormatInt(obj.Rule.Handle, 10)) //nolint
+			return true
 		}
 	}
+	return false
+}
 
+func (m *ForwardingManager) deleteDNATRuleBySrcPort(srcPort int) error {
+	if m.deleteNatChainRule(srcPort, "ip", "nat", "prerouting") {
+		return nil
+	}
+	if m.deleteNatChainRule(srcPort, "ip6", "nat", "prerouting") {
+		return nil
+	}
 	return errors.New("DNAT rule not found")
 }
 
 func (m *ForwardingManager) deleteMasqueradeRuleBySrcPort(srcPort int) error {
-	output, err := m.execNFT("-j", "-a", "list", "chain", "ip", "nat", "postrouting")
-	if err != nil {
-		return err
+	if m.deleteNatChainRule(srcPort, "ip", "nat", "postrouting") {
+		return nil
 	}
-
-	var ruleset NFTRuleset
-	if err := json.Unmarshal(output, &ruleset); err != nil {
-		return err
-	}
-
-	for _, obj := range ruleset.NFTables {
-		if obj.Rule == nil || obj.Rule.Chain != "postrouting" {
-			continue
-		}
-		if strings.HasPrefix(obj.Rule.Comment, fmt.Sprintf("%s %d", ForwardingComment, srcPort)) {
-			_, err := m.execNFT("delete", "rule", "ip", "nat", "postrouting", "handle", strconv.FormatInt(obj.Rule.Handle, 10))
-			return err
-		}
-	}
-
-	return errors.New("MASQUERADE rule not found")
+	m.deleteNatChainRule(srcPort, "ip6", "nat", "postrouting")
+	return nil
 }
 
 func (m *ForwardingManager) deleteOutputDNATRuleBySrcPort(srcPort int) error {
-	output, err := m.execNFT("-j", "-a", "list", "chain", "ip", "nat", "output")
-	if err != nil {
-		return err
+	if m.deleteNatChainRule(srcPort, "ip", "nat", "output") {
+		return nil
 	}
-
-	var ruleset NFTRuleset
-	if err := json.Unmarshal(output, &ruleset); err != nil {
-		return err
-	}
-
-	for _, obj := range ruleset.NFTables {
-		if obj.Rule == nil || obj.Rule.Chain != "output" {
-			continue
-		}
-		if strings.HasPrefix(obj.Rule.Comment, fmt.Sprintf("%s %d", ForwardingComment, srcPort)) {
-			_, err := m.execNFT("delete", "rule", "ip", "nat", "output", "handle", strconv.FormatInt(obj.Rule.Handle, 10))
-			return err
-		}
-	}
-
-	return errors.New("output DNAT rule not found")
+	m.deleteNatChainRule(srcPort, "ip6", "nat", "output")
+	return nil
 }
 
 func (m *ForwardingManager) loadDisabledRules() ([]ForwardingRule, error) {
@@ -2326,6 +2440,15 @@ func isValidIPv4(ip string) bool {
 	}
 	// Ensure it's IPv4 (not IPv6)
 	return parsed.To4() != nil
+}
+
+// isValidIPv6 validates an IPv6 address
+func isValidIPv6(ip string) bool {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return false
+	}
+	return parsed.To4() == nil
 }
 
 // sanitizeForwardingComment removes invalid characters from comment

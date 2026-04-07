@@ -132,6 +132,7 @@ type ForwardingRule struct {
 	DstIP         string `json:"dst_ip"`          // Destination IP address
 	DstPort       int    `json:"dst_port"`        // Destination port
 	Protocol      string `json:"protocol"`        // "tcp" | "udp" | "both"
+	AddrFamily    string `json:"addr_family"`     // "ip" (IPv4) | "ip6" (IPv6); empty = "ip"
 	Enabled       bool   `json:"enabled"`         // Whether the rule is active in nftables
 	Managed       bool   `json:"managed"`         // Whether the rule is managed by nft-ui (has comment)
 	Comment       string `json:"comment"`         // User-provided description
@@ -165,6 +166,15 @@ func normalizeMSSMode(mode string) string {
 	}
 }
 
+func normalizeAddrFamily(family string) string {
+	switch family {
+	case "ip6":
+		return "ip6"
+	default:
+		return "ip"
+	}
+}
+
 func normalizeSourceNATMode(mode string) string {
 	switch mode {
 	case "", SourceNATModeMasquerade:
@@ -182,6 +192,7 @@ type AddForwardingRequest struct {
 	DstIP         string `json:"dst_ip"`
 	DstPort       int    `json:"dst_port"`
 	Protocol      string `json:"protocol"`
+	AddrFamily    string `json:"addr_family"`
 	Comment       string `json:"comment"`
 	LimitMbps     int    `json:"limit_mbps"`
 	MSSMode       string `json:"mss_mode"`
@@ -194,6 +205,7 @@ type EditForwardingRequest struct {
 	DstIP         string `json:"dst_ip"`
 	DstPort       int    `json:"dst_port"`
 	Protocol      string `json:"protocol"`
+	AddrFamily    string `json:"addr_family"`
 	Comment       string `json:"comment"`
 	LimitMbps     int    `json:"limit_mbps"`
 	MSSMode       string `json:"mss_mode"`
@@ -260,6 +272,7 @@ type BackupForwarding struct {
 	DstIP         string `json:"dst_ip"`
 	DstPort       int    `json:"dst_port"`
 	Protocol      string `json:"protocol"`
+	AddrFamily    string `json:"addr_family,omitempty"`
 	Comment       string `json:"comment"`
 	LimitMbps     int    `json:"limit_mbps"`
 	MSSMode       string `json:"mss_mode,omitempty"`

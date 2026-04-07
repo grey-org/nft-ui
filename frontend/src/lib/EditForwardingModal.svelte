@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { editForwardingRule, pauseRefresh, resumeRefresh } from './stores.js';
-  import { isValidIPv4 } from './utils.js';
+  import { isValidIPv4, isValidIPv6 } from './utils.js';
 
   let { rule, onclose } = $props();
 
@@ -18,13 +18,16 @@
   let mssMode = $state(rule.mss_mode || 'fixed1452');
   let sourceNATMode = $state(rule.source_nat_mode || 'masquerade');
   let snatAddress = $state(rule.snat_address || '');
+  let addrFamily = $state(rule.addr_family || 'ip');
   let submitting = $state(false);
   let errors = $state({});
 
   function validate() {
     const newErrors = {};
-    if (!isValidIPv4(dstIP)) {
-      newErrors.dstIP = 'enter a valid IPv4 address';
+    if (addrFamily === 'ip6') {
+      if (!isValidIPv6(dstIP)) newErrors.dstIP = 'enter a valid IPv6 address';
+    } else {
+      if (!isValidIPv4(dstIP)) newErrors.dstIP = 'enter a valid IPv4 address';
     }
     const dstPortNum = parseInt(dstPort, 10);
     if (isNaN(dstPortNum) || dstPortNum < 1 || dstPortNum > 65535) {
@@ -34,7 +37,7 @@
     if (isNaN(limitNum) || limitNum < 0) {
       newErrors.limitMbps = 'limit must be 0 or positive';
     }
-    if (sourceNATMode === 'snat' && !isValidIPv4(snatAddress)) {
+    if (addrFamily === 'ip' && sourceNATMode === 'snat' && !isValidIPv4(snatAddress)) {
       newErrors.snatAddress = 'enter a valid IPv4 SNAT address';
     }
     errors = newErrors;
@@ -52,9 +55,10 @@
         protocol,
         comment,
         parseInt(limitMbps, 10),
-        mssMode,
-        sourceNATMode,
-        snatAddress
+        addrFamily === 'ip6' ? 'disabled' : mssMode,
+        addrFamily === 'ip6' ? 'masquerade' : sourceNATMode,
+        addrFamily === 'ip6' ? '' : snatAddress,
+        addrFamily
       );
       onclose?.();
     } catch (e) {
@@ -99,10 +103,18 @@
       </div>
 
       <div class="mb-4">
+        <label for="addrFamily" class="label">Destination Type</label>
+        <select id="addrFamily" class="select w-full" bind:value={addrFamily}>
+          <option value="ip">IPv4</option>
+          <option value="ip6">IPv6</option>
+        </select>
+      </div>
+
+      <div class="mb-4">
         <label for="dstIP" class="label">Destination IP</label>
         <input
           type="text" id="dstIP" class="input" class:input-error={errors.dstIP}
-          bind:value={dstIP} placeholder="192.168.1.100"
+          bind:value={dstIP} placeholder={addrFamily === 'ip6' ? '2001:db8::1' : '192.168.1.100'}
         />
         {#if errors.dstIP}
           <span style="font-size: 10px; color: var(--danger); display: block; margin-top: 3px;">{errors.dstIP}</span>
@@ -134,37 +146,39 @@
         <input type="text" id="comment" class="input" bind:value={comment} placeholder="SSH tunnel" maxlength="100" />
       </div>
 
-      <div class="mb-4">
-        <label for="sourceNATMode" class="label">Source NAT</label>
-        <select id="sourceNATMode" class="select w-full" bind:value={sourceNATMode}>
-          <option value="masquerade">MASQUERADE (dynamic egress IP)</option>
-          <option value="snat">Fixed SNAT (static egress IP)</option>
-        </select>
-      </div>
-
-      {#if sourceNATMode === 'snat'}
+      {#if addrFamily === 'ip'}
         <div class="mb-4">
-          <label for="snatAddress" class="label">SNAT Address</label>
-          <input
-            type="text" id="snatAddress" class="input" class:input-error={errors.snatAddress}
-            bind:value={snatAddress} placeholder="203.0.113.10"
-          />
-          {#if errors.snatAddress}
-            <span style="font-size: 10px; color: var(--danger); display: block; margin-top: 3px;">{errors.snatAddress}</span>
-          {/if}
-          <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 3px;">required for <code>snat to …</code></span>
+          <label for="sourceNATMode" class="label">Source NAT</label>
+          <select id="sourceNATMode" class="select w-full" bind:value={sourceNATMode}>
+            <option value="masquerade">MASQUERADE (dynamic egress IP)</option>
+            <option value="snat">Fixed SNAT (static egress IP)</option>
+          </select>
+        </div>
+
+        {#if sourceNATMode === 'snat'}
+          <div class="mb-4">
+            <label for="snatAddress" class="label">SNAT Address</label>
+            <input
+              type="text" id="snatAddress" class="input" class:input-error={errors.snatAddress}
+              bind:value={snatAddress} placeholder="203.0.113.10"
+            />
+            {#if errors.snatAddress}
+              <span style="font-size: 10px; color: var(--danger); display: block; margin-top: 3px;">{errors.snatAddress}</span>
+            {/if}
+            <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 3px;">required for <code>snat to …</code></span>
+          </div>
+        {/if}
+
+        <div class="mb-4">
+          <label for="mssMode" class="label">TCP MSS Handling</label>
+          <select id="mssMode" class="select w-full" bind:value={mssMode}>
+            <option value="pmtu">Auto clamp to PMTU (recommended)</option>
+            <option value="fixed1452">Fixed MSS 1452 (legacy)</option>
+            <option value="disabled">Disabled</option>
+          </select>
+          <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 3px;">existing older rules default to fixed 1452 until changed</span>
         </div>
       {/if}
-
-      <div class="mb-4">
-        <label for="mssMode" class="label">TCP MSS Handling</label>
-        <select id="mssMode" class="select w-full" bind:value={mssMode}>
-          <option value="pmtu">Auto clamp to PMTU (recommended)</option>
-          <option value="fixed1452">Fixed MSS 1452 (legacy)</option>
-          <option value="disabled">Disabled</option>
-        </select>
-        <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 3px;">existing older rules default to fixed 1452 until changed</span>
-      </div>
 
       <div class="mb-4">
         <label for="limitMbps" class="label">Bandwidth Limit (Mbps)</label>

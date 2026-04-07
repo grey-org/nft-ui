@@ -484,14 +484,14 @@ func (h *Handler) AddForwarding(c echo.Context) error {
 			Error:   "Source NAT mode must be 'masquerade' or 'snat'",
 		})
 	}
-	if normalizeSourceNATMode(req.SourceNATMode) == SourceNATModeSNAT && !isValidIPv4(req.SNATAddress) {
+	if normalizeAddrFamily(req.AddrFamily) == "ip" && normalizeSourceNATMode(req.SourceNATMode) == SourceNATModeSNAT && !isValidIPv4(req.SNATAddress) {
 		return c.JSON(http.StatusBadRequest, APIResponse{
 			Success: false,
 			Error:   "SNAT address must be a valid IPv4 address",
 		})
 	}
 
-	if err := h.fwd.AddForwardingRule(req.SrcPort, req.DstIP, req.DstPort, req.Protocol, req.Comment, req.LimitMbps, req.MSSMode, req.SourceNATMode, req.SNATAddress); err != nil {
+	if err := h.fwd.AddForwardingRule(req.SrcPort, req.DstIP, req.DstPort, req.Protocol, req.Comment, req.LimitMbps, req.MSSMode, req.SourceNATMode, req.SNATAddress, req.AddrFamily); err != nil {
 		h.logger.Printf("Error adding forwarding rule: %v", err)
 		return c.JSON(http.StatusInternalServerError, APIResponse{
 			Success: false,
@@ -553,14 +553,14 @@ func (h *Handler) EditForwarding(c echo.Context) error {
 			Error:   "Source NAT mode must be 'masquerade' or 'snat'",
 		})
 	}
-	if normalizeSourceNATMode(req.SourceNATMode) == SourceNATModeSNAT && !isValidIPv4(req.SNATAddress) {
+	if normalizeAddrFamily(req.AddrFamily) == "ip" && normalizeSourceNATMode(req.SourceNATMode) == SourceNATModeSNAT && !isValidIPv4(req.SNATAddress) {
 		return c.JSON(http.StatusBadRequest, APIResponse{
 			Success: false,
 			Error:   "SNAT address must be a valid IPv4 address",
 		})
 	}
 
-	if err := h.fwd.EditForwardingRule(id, req.DstIP, req.DstPort, req.Protocol, req.Comment, req.LimitMbps, req.MSSMode, req.SourceNATMode, req.SNATAddress); err != nil {
+	if err := h.fwd.EditForwardingRule(id, req.DstIP, req.DstPort, req.Protocol, req.Comment, req.LimitMbps, req.MSSMode, req.SourceNATMode, req.SNATAddress, req.AddrFamily); err != nil {
 		h.logger.Printf("Error editing forwarding rule %s: %v", id, err)
 		return c.JSON(http.StatusInternalServerError, APIResponse{
 			Success: false,
@@ -773,7 +773,7 @@ func (h *Handler) ImportBackup(c echo.Context) error {
 	for _, f := range backup.Forwarding {
 		if f.Enabled {
 			// Add as active rule
-			err := h.fwd.AddForwardingRule(f.SrcPort, f.DstIP, f.DstPort, f.Protocol, f.Comment, f.LimitMbps, f.MSSMode, f.SourceNATMode, f.SNATAddress)
+			err := h.fwd.AddForwardingRule(f.SrcPort, f.DstIP, f.DstPort, f.Protocol, f.Comment, f.LimitMbps, f.MSSMode, f.SourceNATMode, f.SNATAddress, f.AddrFamily)
 			if err != nil {
 				h.logger.Printf("Skipping forwarding rule %d: %v", f.SrcPort, err)
 				summary.ForwardingSkipped++
@@ -783,7 +783,7 @@ func (h *Handler) ImportBackup(c echo.Context) error {
 		} else {
 			// Add as disabled rule - we'll use the forwarding manager's internal method
 			// Since there's no public API for adding disabled rules, we'll add it first then disable it
-			err := h.fwd.AddForwardingRule(f.SrcPort, f.DstIP, f.DstPort, f.Protocol, f.Comment, f.LimitMbps, f.MSSMode, f.SourceNATMode, f.SNATAddress)
+			err := h.fwd.AddForwardingRule(f.SrcPort, f.DstIP, f.DstPort, f.Protocol, f.Comment, f.LimitMbps, f.MSSMode, f.SourceNATMode, f.SNATAddress, f.AddrFamily)
 			if err != nil {
 				h.logger.Printf("Skipping disabled forwarding rule %d: %v", f.SrcPort, err)
 				summary.ForwardingSkipped++
