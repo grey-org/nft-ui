@@ -2,10 +2,9 @@ package main
 
 // QuotaRule represents a parsed nftables quota rule
 type QuotaRule struct {
-	ID           string  `json:"id"`            // inet_filter_output_<handle>
-	Handle       int64   `json:"handle"`        // nft handle for output chain rule
-	FwdHandle    int64   `json:"fwd_handle"`    // nft handle for forward chain rule
-	Port         int     `json:"port"`          // source port
+	ID           string  `json:"id"`            // inet_filter_forward_<handle>_<port>
+	Handle       int64   `json:"handle"`        // nft handle for forward chain rule
+	Port         int     `json:"port"`          // original destination port (ct original proto-dst)
 	QuotaBytes   int64   `json:"quota_bytes"`   // quota limit in bytes
 	UsedBytes    int64   `json:"used_bytes"`    // current usage in bytes
 	UsagePercent float64 `json:"usage_percent"` // calculated: used/quota * 100

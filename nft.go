@@ -58,69 +58,35 @@ func (n *NFTManager) execNFT(args ...string) ([]byte, error) {
 	return output, nil
 }
 
-// ListQuotas returns all quota rules from the output chain and forward chain
+// ListQuotas returns all quota rules from the forward chain.
+// Quotas are tracked exclusively in the forward chain using ct original proto-dst,
+// which correctly counts all forwarded (DNAT) traffic in both directions.
 func (n *NFTManager) ListQuotas() ([]QuotaRule, error) {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 
-	// Get quota rules from output chain
-	output, err := n.execNFT("-j", "-a", "list", "chain", n.tableFamily, n.tableName, n.chainName)
-	var outputRules []QuotaRule
+	output, err := n.execNFT("-j", "-a", "list", "chain", n.tableFamily, n.tableName, ForwardChainName)
 	if err != nil {
-		if !strings.Contains(err.Error(), "No such file or directory") &&
-			!strings.Contains(err.Error(), "does not exist") {
-			return nil, err
+		if strings.Contains(err.Error(), "No such file or directory") ||
+			strings.Contains(err.Error(), "does not exist") {
+			return []QuotaRule{}, nil
 		}
-	} else {
-		outputRules, err = n.parseQuotaRules(output)
-		if err != nil {
-			return nil, err
-		}
+		return nil, err
 	}
 
-	// Get quota rules from forward chain (for forwarded traffic)
-	fwdOutput, err := n.execNFT("-j", "-a", "list", "chain", n.tableFamily, n.tableName, ForwardChainName)
-	var fwdRules []QuotaRule
-	if err == nil {
-		fwdRules, _ = n.parseQuotaRules(fwdOutput)
+	rules, err := n.parseQuotaRules(output)
+	if err != nil {
+		return nil, err
 	}
 
-	// Merge: for each port, combine used bytes from both chains
-	// The forward chain has the actual usage for forwarded ports
-	fwdByPort := make(map[int]*QuotaRule)
-	for i := range fwdRules {
-		fwdByPort[fwdRules[i].Port] = &fwdRules[i]
-	}
-
-	for i := range outputRules {
-		if fwd, ok := fwdByPort[outputRules[i].Port]; ok {
-			// Combine used bytes from both chains
-			outputRules[i].UsedBytes += fwd.UsedBytes
-			// Store forward chain handle for later operations
-			outputRules[i].FwdHandle = fwd.Handle
-			// Recalculate usage
-			if outputRules[i].QuotaBytes > 0 {
-				outputRules[i].UsagePercent = float64(outputRules[i].UsedBytes) / float64(outputRules[i].QuotaBytes) * 100
-			}
-			if outputRules[i].UsagePercent >= 100 {
-				outputRules[i].Status = "exceeded"
-			} else if outputRules[i].UsagePercent >= 70 {
-				outputRules[i].Status = "warning"
-			} else {
-				outputRules[i].Status = "ok"
-			}
-			delete(fwdByPort, outputRules[i].Port)
+	// Filter to only quota rules managed by nft-ui (QuotaForwardComment prefix)
+	var managed []QuotaRule
+	for _, r := range rules {
+		if strings.HasPrefix(r.Comment, QuotaForwardComment+" ") {
+			managed = append(managed, r)
 		}
 	}
-
-	// Add any forward-only rules (shouldn't happen normally, but be safe)
-	for _, fwd := range fwdByPort {
-		fwd.FwdHandle = fwd.Handle
-		fwd.Handle = 0
-		outputRules = append(outputRules, *fwd)
-	}
-
-	return outputRules, nil
+	return managed, nil
 }
 
 // parseQuotaRules parses the JSON output and extracts quota rules from any chain
@@ -295,29 +261,23 @@ func (n *NFTManager) extractPorts(match map[string]interface{}) []int {
 	return ports
 }
 
-// ResetQuota resets a quota's used bytes to 0
+// ResetQuota resets a quota's used bytes to 0 by deleting and re-adding the forward chain rule
 func (n *NFTManager) ResetQuota(id string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	// Find the rule
 	rule, err := n.findRuleByID(id)
 	if err != nil {
 		return err
 	}
 
-	// Delete the existing output chain rule
-	if rule.Handle > 0 {
-		if err := n.deleteRuleByHandle(rule.Handle); err != nil {
-			return fmt.Errorf("failed to delete output rule: %w", err)
-		}
-	}
+	// Strip the "nft-ui quota <port>" prefix to recover the user comment
+	userComment := strings.TrimPrefix(rule.Comment, fmt.Sprintf("%s %d", QuotaForwardComment, rule.Port))
+	userComment = strings.TrimSpace(userComment)
 
-	// Delete the forward chain rule
 	n.deleteForwardQuotaByPort(rule.Port)
 
-	// Recreate rules in both chains with used=0
-	if err := n.addQuotaRule(rule.Port, rule.QuotaBytes, rule.Comment); err != nil {
+	if err := n.addQuotaRule(rule.Port, rule.QuotaBytes, userComment); err != nil {
 		return fmt.Errorf("failed to recreate rule: %w", err)
 	}
 
@@ -339,24 +299,18 @@ func (n *NFTManager) ModifyQuota(id string, newBytes int64) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	// Find the rule
 	rule, err := n.findRuleByID(id)
 	if err != nil {
 		return err
 	}
 
-	// Delete the existing output chain rule
-	if rule.Handle > 0 {
-		if err := n.deleteRuleByHandle(rule.Handle); err != nil {
-			return fmt.Errorf("failed to delete output rule: %w", err)
-		}
-	}
+	// Strip the "nft-ui quota <port>" prefix to recover the user comment
+	userComment := strings.TrimPrefix(rule.Comment, fmt.Sprintf("%s %d", QuotaForwardComment, rule.Port))
+	userComment = strings.TrimSpace(userComment)
 
-	// Delete the forward chain rule
 	n.deleteForwardQuotaByPort(rule.Port)
 
-	// Recreate rules in both chains with new limit
-	if err := n.addQuotaRule(rule.Port, newBytes, rule.Comment); err != nil {
+	if err := n.addQuotaRule(rule.Port, newBytes, userComment); err != nil {
 		return fmt.Errorf("failed to recreate rule: %w", err)
 	}
 
@@ -382,7 +336,7 @@ func (n *NFTManager) AddQuota(port int, bytes int64, comment string) error {
 	return n.addQuotaRule(port, bytes, comment)
 }
 
-// DeleteQuota deletes a quota rule from both output and forward chains
+// DeleteQuota deletes a quota rule from the forward chain
 func (n *NFTManager) DeleteQuota(id string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -392,23 +346,12 @@ func (n *NFTManager) DeleteQuota(id string) error {
 		return err
 	}
 
-	// Delete output chain rule
-	if rule.Handle > 0 {
-		if err := n.deleteRuleByHandle(rule.Handle); err != nil {
-			return err
-		}
-	}
-
-	// Delete forward chain rule
-	n.deleteForwardQuotaByPort(rule.Port)
-
-	return nil
+	return n.deleteForwardQuotaByPort(rule.Port)
 }
 
-// findRuleByID finds a rule by its ID (requires lock to be held)
+// findRuleByID finds a quota rule by its ID in the forward chain (requires lock to be held)
 func (n *NFTManager) findRuleByID(id string) (*QuotaRule, error) {
-	// Get current rules (without lock since caller holds it)
-	output, err := n.execNFT("-j", "-a", "list", "chain", n.tableFamily, n.tableName, n.chainName)
+	output, err := n.execNFT("-j", "-a", "list", "chain", n.tableFamily, n.tableName, ForwardChainName)
 	if err != nil {
 		return nil, err
 	}
@@ -427,85 +370,32 @@ func (n *NFTManager) findRuleByID(id string) (*QuotaRule, error) {
 	return nil, fmt.Errorf("rule not found: %s", id)
 }
 
-// deleteRuleByHandle deletes a rule by its handle
-func (n *NFTManager) deleteRuleByHandle(handle int64) error {
-	_, err := n.execNFT("delete", "rule", n.tableFamily, n.tableName, n.chainName, "handle", strconv.FormatInt(handle, 10))
-	return err
-}
-
-// EnsureFilterOutputSetup ensures the filter table and output chain exist
-func (n *NFTManager) EnsureFilterOutputSetup() error {
-	// Check if table exists
-	_, err := n.execNFT("list", "table", n.tableFamily, n.tableName)
-	if err != nil {
-		// Create table
-		if _, err := n.execNFT("add", "table", n.tableFamily, n.tableName); err != nil {
-			return fmt.Errorf("failed to create %s %s table: %w", n.tableFamily, n.tableName, err)
-		}
-	}
-
-	// Check if output chain exists
-	_, err = n.execNFT("list", "chain", n.tableFamily, n.tableName, n.chainName)
-	if err != nil {
-		// Create output chain
-		if _, err := n.execNFT("add", "chain", n.tableFamily, n.tableName, n.chainName,
-			"{ type filter hook output priority filter ; policy accept ; }"); err != nil {
-			return fmt.Errorf("failed to create %s chain: %w", n.chainName, err)
-		}
-	}
-
-	return nil
-}
-
-// addQuotaRule adds quota rules in both output chain (local traffic) and forward chain (forwarded traffic)
+// addQuotaRule adds a quota rule in the forward chain using ct original proto-dst.
+// This correctly counts all forwarded (DNAT) traffic in both directions.
 func (n *NFTManager) addQuotaRule(port int, bytes int64, comment string) error {
-	// Ensure filter table and output chain exist
-	if err := n.EnsureFilterOutputSetup(); err != nil {
+	if err := n.EnsureFilterForwardSetup(); err != nil {
 		return err
 	}
 
-	// Convert bytes to mbytes for cleaner command
+	// Convert bytes to mbytes for the nft quota keyword
 	mbytes := bytes / (1000 * 1000)
 	if mbytes < 1 {
 		mbytes = 1
 	}
 
-	// Add rule in output chain (for local traffic, matches by source port)
-	args := []string{
-		"add", "rule", n.tableFamily, n.tableName, n.chainName,
-		"meta", "l4proto", "{", "tcp,", "udp", "}",
-		"th", "sport", strconv.Itoa(port),
-		"quota", "over", strconv.FormatInt(mbytes, 10), "mbytes",
-		"drop",
-	}
-	if comment != "" {
-		args = append(args, "comment", fmt.Sprintf(`"%s"`, comment))
-	}
-	if _, err := n.execNFT(args...); err != nil {
-		return err
-	}
-
-	// Ensure forward chain exists for forwarded traffic quota
-	if err := n.EnsureFilterForwardSetup(); err != nil {
-		return err
-	}
-
-	// Add rule in forward chain (for forwarded/DNAT traffic, matches by ct original dport)
 	fwdComment := fmt.Sprintf("%s %d", QuotaForwardComment, port)
 	if comment != "" {
 		fwdComment = fmt.Sprintf("%s %s", fwdComment, comment)
 	}
-	fwdArgs := []string{
+	args := []string{
 		"insert", "rule", n.tableFamily, n.tableName, ForwardChainName,
 		"ct", "original", "proto-dst", strconv.Itoa(port),
 		"quota", "over", strconv.FormatInt(mbytes, 10), "mbytes",
 		"drop",
 		"comment", fmt.Sprintf(`"%s"`, fwdComment),
 	}
-	if _, err := n.execNFT(fwdArgs...); err != nil {
-		// Non-fatal: output chain rule was already added successfully
-		// Log but don't fail - forward chain rule is supplementary
-		fmt.Printf("Warning: failed to add forward chain quota rule for port %d: %v\n", port, err)
+	if _, err := n.execNFT(args...); err != nil {
+		return err
 	}
 
 	return nil
@@ -513,11 +403,13 @@ func (n *NFTManager) addQuotaRule(port int, bytes int64, comment string) error {
 
 // EnsureFilterForwardSetup ensures the filter table and forward chain exist
 func (n *NFTManager) EnsureFilterForwardSetup() error {
-	// Table should already exist (ensured by EnsureFilterOutputSetup)
-	// Check if forward chain exists
+	if _, err := n.execNFT("list", "table", n.tableFamily, n.tableName); err != nil {
+		if _, err := n.execNFT("add", "table", n.tableFamily, n.tableName); err != nil {
+			return fmt.Errorf("failed to create %s %s table: %w", n.tableFamily, n.tableName, err)
+		}
+	}
 	_, err := n.execNFT("list", "chain", n.tableFamily, n.tableName, ForwardChainName)
 	if err != nil {
-		// Create forward chain
 		if _, err := n.execNFT("add", "chain", n.tableFamily, n.tableName, ForwardChainName,
 			"{ type filter hook forward priority filter ; policy accept ; }"); err != nil {
 			return fmt.Errorf("failed to create %s chain: %w", ForwardChainName, err)
@@ -1070,6 +962,57 @@ func (n *NFTManager) ReconcileForwardQuotaRules() error {
 			return fmt.Errorf("failed to reinsert quota rule for port %d: %w", q.port, err)
 		}
 		fmt.Printf("[nft-ui] reconciled forward quota rule for port %d (moved before accept rules)\n", q.port)
+	}
+
+	return nil
+}
+
+// ReconcileOutputChainQuotaRules removes stale quota rules from the output chain.
+// Older releases added a quota rule to the output chain (th sport <port>) alongside
+// the forward chain rule. The output chain rule never matched forwarded traffic and
+// has been removed from new additions; this function cleans up the leftover rules.
+func (n *NFTManager) ReconcileOutputChainQuotaRules() error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	output, err := n.execNFT("-j", "-a", "list", "chain", n.tableFamily, n.tableName, n.chainName)
+	if err != nil {
+		return nil // chain doesn't exist, nothing to do
+	}
+
+	var ruleset NFTRuleset
+	if err := json.Unmarshal(output, &ruleset); err != nil {
+		return fmt.Errorf("failed to parse output chain: %w", err)
+	}
+
+	for _, obj := range ruleset.NFTables {
+		r := obj.Rule
+		if r == nil || r.Chain != n.chainName {
+			continue
+		}
+		hasQuota := false
+		hasSport := false
+		for _, expr := range r.Expr {
+			if _, ok := expr["quota"]; ok {
+				hasQuota = true
+			}
+			if mm, ok := expr["match"].(map[string]interface{}); ok {
+				if left, ok := mm["left"].(map[string]interface{}); ok {
+					if payload, ok := left["payload"].(map[string]interface{}); ok {
+						if payload["field"] == "sport" {
+							hasSport = true
+						}
+					}
+				}
+			}
+		}
+		if hasQuota && hasSport {
+			if _, err := n.execNFT("delete", "rule", n.tableFamily, n.tableName, n.chainName,
+				"handle", strconv.FormatInt(r.Handle, 10)); err != nil {
+				return fmt.Errorf("failed to delete stale output quota rule (handle %d): %w", r.Handle, err)
+			}
+			fmt.Printf("[nft-ui] removed stale output-chain quota rule handle %d\n", r.Handle)
+		}
 	}
 
 	return nil

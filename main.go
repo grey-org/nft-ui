@@ -61,6 +61,9 @@ func main() {
 	if err := nftMgr.ReconcileForwardQuotaRules(); err != nil {
 		logger.Printf("Warning: failed to reconcile forward quota rules: %v", err)
 	}
+	if err := nftMgr.ReconcileOutputChainQuotaRules(); err != nil {
+		logger.Printf("Warning: failed to remove stale output quota rules: %v", err)
+	}
 
 	// Initialize token generator (may be nil if not configured)
 	var tokenGen *TokenGenerator
